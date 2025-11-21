@@ -7,11 +7,16 @@
 #include <set>
 #include <iostream>
 
+#ifdef USE_MPI
+#include <mpi.h>
+#endif
+
+
 using namespace std;
 
 namespace pam {
 
-static void compute_membership_and_dists(int n, const vector<int>& D, const vector<int>& medoids,
+static void calculer_affectation(int n, const vector<int>& D, const vector<int>& medoids,
                                          int start, int end,
                                          vector<int>& membership, vector<int>& bestDist, vector<int>& secondBestDist) {
     int k = (int)medoids.size();
@@ -55,7 +60,7 @@ Result pam_sequential(int n, const vector<int>& D, int k, int seed) {
     vector<int> bestDist(n), secondBestDist(n);
 
     // initial membership
-    compute_membership_and_dists(n, D, medoids, 0, n, membership, bestDist, secondBestDist);
+    calculer_affectation(n, D, medoids, 0, n, membership, bestDist, secondBestDist);
 
     long long cost = 0;
     for (int i = 0; i < n; ++i) cost += bestDist[i];
@@ -96,7 +101,7 @@ Result pam_sequential(int n, const vector<int>& D, int k, int seed) {
             // apply swap
             medoids[bestSwapMed] = bestSwapCand;
             // recompute membership and dists
-            compute_membership_and_dists(n, D, medoids, 0, n, membership, bestDist, secondBestDist);
+            calculer_affectation(n, D, medoids, 0, n, membership, bestDist, secondBestDist);
             cost += bestDelta;
             improved = true;
         }
@@ -110,126 +115,131 @@ Result pam_sequential(int n, const vector<int>& D, int k, int seed) {
 
 #ifndef USE_MPI
 // Fallback: if MPI not enabled, just run sequential PAM
-Result pam_replicated(int n, const vector<int>& D, int k, int seed, int /*rank*/, int /*size*/) {
+Result pam_distributed(int n, const vector<int>& D, int k, int seed, int /*rank*/, int /*size*/) {
     return pam_sequential(n, D, k, seed);
 }
 #else
-// MPI-enabled implementation
-#include <mpi.h>
-
-Result pam_replicated(int n, const vector<int>& D, int k, int seed, int rank, int size) {
-    // We distribute work by rows for computing deltas but D is fully available on each process.
-    // We'll perform the same swap search but each process computes contributions for a subset of rows.
+Result pam_distributed(int n, const vector<int>& D, int k, int seed, int rank, int size) {
     Result res;
+
     if (k <= 0 || k > n) {
-        if (rank == 0) cerr << "Invalid k" << endl;
+        if (rank == 0) cerr << "Erreur : k invalide" << endl;
         return res;
     }
 
-    // initial medoids on rank 0
+    // Distribution de la matrice D par lignes
+    vector<int> localD;
+    int rowsPerProc = n / size;
+    int remainder = n % size;
+    vector<int> sendCounts(size);
+    vector<int> displs(size);
+    int offset = 0;
+
+    // remplir sendCounts et displs
+    for (int i = 0; i < size; ++i) {
+         sendCounts[i] = (i < remainder) ? (rowsPerProc + 1) * n : rowsPerProc * n;
+        displs[i] = offset;
+        offset += sendCounts[i];
+    }
+
+    int localRows = sendCounts[rank] / n;
+    localD.resize(localRows * n);
+
+    MPI_Scatterv(D.data(), sendCounts.data(), displs.data(), MPI_INT,
+                 localD.data(), localRows * n, MPI_INT, 0, MPI_COMM_WORLD);
+
+    // Initialisation aléatoire des medoids sur rank 0
     vector<int> medoids;
     if (rank == 0) {
-        vector<int> idx(n);
-        for (int i = 0; i < n; ++i) idx[i] = i;
-        mt19937 rng(seed);
-        shuffle(idx.begin(), idx.end(), rng);
-        for (int i = 0; i < k; ++i) medoids.push_back(idx[i]);
+        medoids.reserve(k);
+        std::mt19937 rng(seed);
+        vector<int> perm(n);
+        for (int i = 0; i < n; ++i) perm[i] = i;
+        shuffle(perm.begin(), perm.end(), rng);
+        for (int i = 0; i < k; ++i) medoids.push_back(perm[i]);
     }
-    // broadcast medoids
+
+    // Broadcast des medoids à tous les processus
     medoids.resize(k);
     MPI_Bcast(medoids.data(), k, MPI_INT, 0, MPI_COMM_WORLD);
 
-    // prepare local buffers: partition rows among processes
-    int rows_per = n / size;
-    int rem = n % size;
-    int start = rank * rows_per + min(rank, rem);
-    int end = start + rows_per + (rank < rem ? 1 : 0);
-    int local_n = end - start;
+    // Tableaux d'affectation locaux
+    vector<int> membership(localRows);
+    vector<int> bestDist(localRows), secondBestDist(localRows);
 
-    vector<int> membership_local(local_n);
-    vector<int> bestDist_local(local_n), secondBestDist_local(local_n);
+    // Calcul initial des affectations locales
+    calculer_affectation(n, localD, medoids, 0, localRows, membership, bestDist, secondBestDist);
 
-    // initial membership and dists (local)
-    compute_membership_and_dists(n, D, medoids, start, end, membership_local, bestDist_local, secondBestDist_local);
+    // Coût total local
+    long long localCost = 0;
+    for (int i = 0; i < localRows; ++i) localCost += bestDist[i];
 
-    // compute initial cost (reduce)
-    long long local_cost = 0;
-    for (int i = 0; i < local_n; ++i) local_cost += bestDist_local[i];
-    long long cost = 0;
-    MPI_Allreduce(&local_cost, &cost, 1, MPI_LONG_LONG, MPI_SUM, MPI_COMM_WORLD);
-
-    bool improved = true;
-    while (improved) {
-        improved = false;
-        long long bestDeltaGlobal = 0;
-        int bestMedGlobal = -1;
-        int bestCandGlobal = -1;
-
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        long long bestDelta = 0;
+        int bestMedIndex = -1;
+        int bestCand = -1;
         set<int> medset(medoids.begin(), medoids.end());
 
-        // For each medoid and candidate, compute local delta and reduce
         for (int mi = 0; mi < k; ++mi) {
             for (int cand = 0; cand < n; ++cand) {
                 if (medset.count(cand)) continue;
-                long long local_delta = 0;
-                for (int ii = start; ii < end; ++ii) {
-                    int i_local = ii - start;
-                    int distToCand = D[ii*n + cand];
-                    if (membership_local[i_local] == mi) {
-                        int newdist = min(distToCand, secondBestDist_local[i_local]);
-                        local_delta += (long long)newdist - bestDist_local[i_local];
+
+                long long delta = 0;
+                for (int i = 0; i < localRows; ++i) {
+                    int distToCand = localD[i*n + cand];
+                    if (membership[i] == mi) {
+                        int nd = min(distToCand, secondBestDist[i]);
+                        delta += (long long)nd - bestDist[i];
                     } else {
-                        if (distToCand < bestDist_local[i_local]) local_delta += (long long)distToCand - bestDist_local[i_local];
+                        if (distToCand < bestDist[i]) delta += (long long)distToCand - bestDist[i];
                     }
                 }
-                long long total_delta = 0;
-                MPI_Allreduce(&local_delta, &total_delta, 1, MPI_LONG_LONG, MPI_SUM, MPI_COMM_WORLD);
-                if (total_delta < bestDeltaGlobal) {
-                    bestDeltaGlobal = total_delta;
-                    bestMedGlobal = mi;
-                    bestCandGlobal = cand;
+
+                long long globalDelta = 0;
+                MPI_Allreduce(&delta, &globalDelta, 1, MPI_LONG_LONG, MPI_SUM, MPI_COMM_WORLD);
+
+                if (globalDelta < bestDelta) {
+                    bestDelta = globalDelta;
+                    bestMedIndex = mi;
+                    bestCand = cand;
                 }
             }
         }
 
-        if (bestDeltaGlobal < 0) {
-            improved = true;
-            // apply swap on all processes
-            medoids[bestMedGlobal] = bestCandGlobal;
+        if (bestDelta < 0) {
+            // Appliquer l'échange
+            medoids[bestMedIndex] = bestCand;
             MPI_Bcast(medoids.data(), k, MPI_INT, 0, MPI_COMM_WORLD);
-            // recompute local membership/dists
-            compute_membership_and_dists(n, D, medoids, start, end, membership_local, bestDist_local, secondBestDist_local);
-            // update cost
-            local_cost = 0;
-            for (int i = 0; i < local_n; ++i) local_cost += bestDist_local[i];
-            MPI_Allreduce(&local_cost, &cost, 1, MPI_LONG_LONG, MPI_SUM, MPI_COMM_WORLD);
+            calculer_affectation(n, localD, medoids, 0, localRows, membership, bestDist, secondBestDist);
+            localCost += bestDelta; // chaque proc ajoute la même valeur
+            changed = true;
         }
     }
 
-    // gather memberships to root (optional) - we return local membership only aggregated on rank 0
+    // Rassembler le membership complet sur rank 0
+    vector<int> fullMembership;
+    vector<int> recvCounts(size);
+    for (int i = 0; i < size; ++i) {
+        recvCounts[i] = (i < remainder ? rowsPerProc + 1 : rowsPerProc);
+        displs[i] = (i == 0 ? 0 : displs[i-1] + recvCounts[i-1]);
+    }
+
+    if (rank == 0) fullMembership.resize(n);
+    MPI_Gatherv(membership.data(), localRows, MPI_INT,
+                fullMembership.data(), recvCounts.data(), displs.data(),
+                MPI_INT, 0, MPI_COMM_WORLD);
+
+    // Calcul du coût total final
+    long long totalCost = 0;
+    MPI_Reduce(&localCost, &totalCost, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);  
+    // Rassembler les résultats sur rank 0 
     if (rank == 0) {
-        res.membership.assign(n, -1);
-        // copy root part
-        for (int i = start; i < end; ++i) res.membership[i] = membership_local[i - start];
-        // receive from others
-        for (int p = 1; p < size; ++p) {
-            int pstart = p * rows_per + min(p, rem);
-            int pend = pstart + rows_per + (p < rem ? 1 : 0);
-            int plen = pend - pstart;
-            if (plen > 0) {
-                vector<int> buf(plen);
-                MPI_Recv(buf.data(), plen, MPI_INT, p, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                for (int i = 0; i < plen; ++i) res.membership[pstart + i] = buf[i];
-            }
-        }
-    } else {
-        // send local membership to root
-        if (local_n > 0) MPI_Send(membership_local.data(), local_n, MPI_INT, 0, 0, MPI_COMM_WORLD);
+        res.medoids = medoids;
+        res.membership = fullMembership;
+        res.cost = totalCost;
     }
-
-    // gather medoids to all (already consistent)
-    res.medoids = medoids;
-    res.cost = cost;
     return res;
 }
 #endif

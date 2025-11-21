@@ -14,14 +14,14 @@ struct Result {
     long long cost;
 };
 
-// Exécute PAM en mode répliqué (chaque processus obtient la matrice D entière).
+
 // - n: nombre de points
 // - D: vecteur length n*n (row-major)
 // - k: nombre de medoids
 // - seed: seed aléatoire
 // - rank,size: fournis par MPI
 // Retourne Result (valide sur tous les processus)
-Result pam_replicated(int n, const std::vector<int>& D, int k, int seed, int rank, int size);
+Result pam_distributed(int n, const std::vector<int>& D, int k, int seed, int rank, int size);
 
 // Version séquentielle pratique (wrapper)
 Result pam_sequential(int n, const std::vector<int>& D, int k, int seed);

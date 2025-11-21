@@ -1,10 +1,10 @@
 CXX = g++
-CFLAGS = -O2 -std=c++11
+CFLAGS = -O2 -std=c++11 -DWITH_GRAPHVIZ
 
 INCLUDES = -I../Floyd
-LDFLAGS =
+LDFLAGS = -lcgraph -lgvc  
 
-SRCS = main_pam.cpp PAM.cpp
+SRCS = main_pam.cpp PAM.cpp ../Floyd/ForGraph.cpp 
 OBJS = $(SRCS:.cpp=.o)
 
 all: pam
@@ -23,3 +23,5 @@ clean:
 	rm -f $(OBJS) pam pam_mpi
 
 .PHONY: all clean mpipam
+
+

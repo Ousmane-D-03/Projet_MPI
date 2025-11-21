@@ -5,6 +5,7 @@
 #include <vector>
 #include <string>
 #include <cstring>
+#include <unistd.h>
 #ifdef USE_MPI
 #include <mpi.h>
 #endif
@@ -48,60 +49,60 @@ int main(int argc, char* argv[]) {
     // - WITH_GRAPHVIZ defined at compile time: read .dot file and use Floyd code (Graphviz required)
     // - otherwise: input is a distance matrix text file: first line n, then n lines with n ints
     if (rank == 0) {
-#ifdef WITH_GRAPHVIZ
-        map<string,int> nodes;
-        int* mat_adj = lectureGraphe(dotfile, &n, &nodes);
-        if (!mat_adj) {
-            cerr << "Failed to read graph" << endl;
-#ifdef USE_MPI
-            MPI_Abort(MPI_COMM_WORLD, 1);
-#else
-            return 1;
-#endif
-        }
-        int* Dk = MatDistance(n, mat_adj);
-        D.resize(n*n);
-        for (int i = 0; i < n*n; ++i) D[i] = Dk[i];
-        delete[] mat_adj;
-        delete[] Dk;
-#else
-        // read distance matrix from text file `dotfile`
-        FILE* f = fopen(dotfile, "r");
-        if (!f) {
-            cerr << "Failed to open distance file: " << dotfile << endl;
-#ifdef USE_MPI
-            MPI_Abort(MPI_COMM_WORLD, 1);
-#else
-            return 1;
-#endif
-        }
-        if (fscanf(f, "%d", &n) != 1) {
-            cerr << "Failed to read n from distance file" << endl;
-            fclose(f);
-#ifdef USE_MPI
-            MPI_Abort(MPI_COMM_WORLD, 1);
-#else
-            return 1;
-#endif
-        }
-        D.resize(n * n);
-        for (int i = 0; i < n; ++i) {
-            for (int j = 0; j < n; ++j) {
-                int v;
-                if (fscanf(f, "%d", &v) != 1) {
-                    cerr << "Failed to read distance at " << i << "," << j << endl;
-                    fclose(f);
-#ifdef USE_MPI
+        #ifdef WITH_GRAPHVIZ
+                map<string,int> nodes;
+                int* mat_adj = lectureGraphe(dotfile, &n, &nodes);
+                if (!mat_adj) {
+                    cerr << "Failed to read graph" << endl;
+        #ifdef USE_MPI
                     MPI_Abort(MPI_COMM_WORLD, 1);
-#else
+        #else
                     return 1;
-#endif
+        #endif
                 }
-                D[i*n + j] = v;
-            }
-        }
-        fclose(f);
-#endif
+                int* Dk = MatDistance(n, mat_adj);
+                D.resize(n*n);
+                for (int i = 0; i < n*n; ++i) D[i] = Dk[i];
+                delete[] mat_adj;
+                delete[] Dk;
+        #else
+                // read distance matrix from text file `dotfile`
+                FILE* f = fopen(dotfile, "r");
+                if (!f) {
+                    cerr << "Failed to open distance file: " << dotfile << endl;
+        #ifdef USE_MPI
+                    MPI_Abort(MPI_COMM_WORLD, 1);
+        #else
+                    return 1;
+        #endif
+                }
+                if (fscanf(f, "%d", &n) != 1) {
+                    cerr << "Failed to read n from distance file" << endl;
+                    fclose(f);
+        #ifdef USE_MPI
+                    MPI_Abort(MPI_COMM_WORLD, 1);
+        #else
+                    return 1;
+        #endif
+                }
+                D.resize(n * n);
+                for (int i = 0; i < n; ++i) {
+                    for (int j = 0; j < n; ++j) {
+                        int v;
+                        if (fscanf(f, "%d", &v) != 1) {
+                            cerr << "Failed to read distance at " << i << "," << j << endl;
+                            fclose(f);
+        #ifdef USE_MPI
+                            MPI_Abort(MPI_COMM_WORLD, 1);
+        #else
+                            return 1;
+        #endif
+                        }
+                        D[i*n + j] = v;
+                    }
+                }
+                fclose(f);
+        #endif
     }
 
     // broadcast n then data
@@ -117,12 +118,18 @@ int main(int argc, char* argv[]) {
     }
 
     if (rank != 0) D.resize(n*n);
-#ifdef USE_MPI
-    MPI_Bcast(D.data(), n*n, MPI_INT, 0, MPI_COMM_WORLD);
-#endif
 
-    // run PAM replicated
-    pam::Result r = pam::pam_replicated(n, D, k, seed, rank, size);
+    //faire attendre rank 0 pour tester la diffusion
+    if (rank == 1) {
+        // attend 20 secondes
+        sleep(20);
+        
+    }
+   
+    
+
+    // run PAM distributed
+    pam::Result r = pam::pam_distributed(n, D, k, seed, rank, size);
 
     if (rank == 0) {
         cout << "Cost: " << r.cost << "\nMedoids:";
@@ -134,6 +141,13 @@ int main(int argc, char* argv[]) {
         cout << "Counts per medoid:";
         for (int c: counts) cout << " " << c;
         cout << "\n";
+
+        // Detailed membership
+        cout << "Membership:\n";
+        for (int i = 0; i < (int)r.membership.size(); ++i) {
+            cout << "Point " << i << " -> Medoid " << r.membership[i] << "\n";
+
+        }
     }
 
 #ifdef USE_MPI
