@@ -1,19 +1,21 @@
-CC := g++
-CFLAGS := -std=c++11 -Wall -Wextra -pedantic -O3
-LDFLAGS := -lcgraph
+CXX = mpic++
+CFLAGS = -O2 -std=c++11 -DUSE_MPI -DWITH_GRAPHVIZ
+INCLUDES = -I.
+LDFLAGS = -lcgraph
 
-SRC := $(wildcard *.cpp)
-OBJ := $(SRC:.cpp=.o)
+SRCS = FoydPar.cpp ForGraph.cpp Utils.cpp
+OBJS = $(SRCS:.cpp=.o)
+TARGET = mpi_floyd
 
-.PHONY: all clean
+all: $(TARGET)
 
-all: main
+$(TARGET): $(OBJS)
+	$(CXX) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS)
 
-main: $(OBJ)
-	$(CC) -o $@ $^ $(LDFLAGS)
-
-%.o: %.c
-	$(CC) $(CFLAGS) -c $< -o $@
+%.o: %.cpp
+	$(CXX) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 clean:
-	rm -f *.o main *~
+	rm -f $(OBJS) $(TARGET)
+
+.PHONY: all clean
