@@ -10,7 +10,16 @@ using namespace std;
 
 inline int& A(int* B, int b, int i, int j) { return B[i*b + j]; }
 
-// Découpe la matrice globale en blocs
+/**
+ * @brief Découpe la matrice globale en blocs et les distribue aux processus
+ * @param D matrice globale
+ * @param D_local bloc local
+ * @param n taille de la matrice globale
+ * @param block_size taille d’un bloc
+ * @param p_sqrt racine carrée du nombre de processus
+ * @param root processus racine
+ * @param pid identifiant du processus courant
+ */
 void decouperMatrice(int* D, int* D_local, int n, int block_size, int p_sqrt, int root, int pid) {
     if(pid==root){
         int* temp = new int[block_size*block_size];
@@ -31,7 +40,16 @@ void decouperMatrice(int* D, int* D_local, int n, int block_size, int p_sqrt, in
     }
 }
 
-// Rassemble les blocs en utilisant MPI_Gather
+/**
+ * @brief Rassemble les blocs distribués en matrice globale
+ * @param D_local bloc local
+ * @param n taille de la matrice globale
+ * @param block_size taille d’un bloc
+ * @param p_sqrt racine carrée du nombre de processus
+ * @param root processus racine
+ * @param pid identifiant du processus courant
+ * @return pointeur vers la matrice globale (NULL si non root)
+ */
 int* rassemblerMatrice(int* D_local,
                        int n, int block_size, int p_sqrt, int root, int pid)
 {
@@ -64,7 +82,14 @@ int* rassemblerMatrice(int* D_local,
     return nullptr;
 }
 
-// Affichage du bloc local d’un processus
+/**
+ * @brief Affiche un bloc local de matrice
+ * @param D_local bloc local
+ * @param block_size taille du bloc
+ * @param pid id du processus
+ * @param nprocs nombre total de processus
+ * @param titre titre à afficher
+ */
 void afficherBloc(int* D_local, int block_size, int pid, int nprocs, const string &titre){
     MPI_Barrier(MPI_COMM_WORLD);
     for(int p=0;p<nprocs;p++){
@@ -81,7 +106,13 @@ void afficherBloc(int* D_local, int block_size, int pid, int nprocs, const strin
     }
 }
 
-// Floyd par blocs MPI
+/**
+ * @brief Algorithme de Floyd–Warshall par blocs (MPI)
+ * @param D_local bloc local de matrice
+ * @param nb_nodes nombre de nœuds du graphe
+ * @param p_sqrt racine carrée du nombre de processus
+ * @param pid id du processus courant
+ */
 void floydBlocsMPI(int* D_local, int nb_nodes, int p_sqrt, int pid){
     int block_size = nb_nodes/p_sqrt;
     int px = pid/p_sqrt;
@@ -193,7 +224,10 @@ int main(int argc, char** argv) {
         cout << "=== Matrice globale initiale ===\n";
         for(int i=0;i<nb_nodes;i++){
             for(int j=0;j<nb_nodes;j++)
-                cout << setw(3) << (D1[i*nb_nodes+j]==INF?"INF":to_string(D1[i*nb_nodes+j])) << " ";
+                if (D[i*nb_nodes + j] == INF)
+                cout << setw(4) << "I";
+            else
+                cout << setw(4) << D[i*nb_nodes + j];
             cout << "\n";
         }
         cout << endl;
