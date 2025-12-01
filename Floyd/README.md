@@ -1,6 +1,6 @@
 # Floyd–Warshall MPI (Bloc par Bloc)
 
-Implémentation séquentielle et parallèle (MPI) de l’algorithme de Floyd–Warshall avec découpage en blocs.
+Implémentation parallèle (MPI) de l’algorithme de Floyd–Warshall avec découpage en blocs.
 
 ## Compilation
 make
@@ -9,7 +9,7 @@ make
 mpirun -np <P> ./floyd graph.dot [iters]
 
 - P doit être un carré parfait (4, 9, 16…)
-- iters = nombre d'itérations (50 par défaut)
+- iters = nombre d'itérations (50 par défaut) 
 
 ## Sorties
 - Matrice finale
