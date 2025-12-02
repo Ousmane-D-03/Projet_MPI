@@ -119,12 +119,10 @@ int main(int argc, char* argv[]) {
 
     if (rank != 0) D.resize(n*n);
 
-    //faire attendre rank 0 pour tester la diffusion
-    if (rank == 1) {
-        // attend 20 secondes
-        sleep(20);
-        
-    }
+#ifdef USE_MPI
+    MPI_Bcast(D.data(), n*n, MPI_INT, 0, MPI_COMM_WORLD);
+#endif
+
    
     
 
