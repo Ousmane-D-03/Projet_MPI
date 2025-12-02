@@ -1,0 +1,13 @@
+graph ARN {
+  rankdir=LR;
+  seq0 [label="Virus_Influenza_A_H1N1"];
+  seq1 [label="Virus_Influenza_B_Yamagata"];
+  seq2 [label="Coronavirus_SARS_CoV_2"];
+  seq3 [label="Virus_Zika"];
+  seq4 [label="Rotavirus_A"];
+
+  seq0 -- seq1 [weight=3, label="3"];
+  seq0 -- seq3 [weight=0, label="0"];
+  seq1 -- seq3 [weight=3, label="3"];
+  seq2 -- seq4 [weight=0, label="0"];
+}
