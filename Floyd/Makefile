@@ -3,7 +3,7 @@ CFLAGS = -O2 -std=c++11 -DUSE_MPI -DWITH_GRAPHVIZ
 INCLUDES = -I.
 LDFLAGS = -lcgraph
 
-SRCS = FoydPar.cpp ForGraph.cpp Utils.cpp
+SRCS = FoydPar.cpp ForGraph.cpp Utils.cpp main.cpp
 OBJS = $(SRCS:.cpp=.o)
 TARGET = mpi_floyd
 
