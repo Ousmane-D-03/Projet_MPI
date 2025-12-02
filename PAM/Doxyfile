@@ -1,0 +1,11 @@
+# Doxyfile minimal pour le dossier PAM
+PROJECT_NAME = "PAM - Projet MPI"
+OUTPUT_DIRECTORY = docs
+INPUT = .
+RECURSIVE = NO
+GENERATE_HTML = YES
+GENERATE_LATEX = NO
+QUIET = YES
+EXTRACT_ALL = YES
+FILE_PATTERNS = *.cpp *.hpp
+*** End of File

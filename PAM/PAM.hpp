@@ -9,21 +9,39 @@
 namespace pam {
 
 struct Result {
-    std::vector<int> medoids; // indices des medoids
-    std::vector<int> membership; // pour chaque point, index du medoid
+    /** Indices des médoines (indices de sommets choisis comme centres) */
+    std::vector<int> medoids;
+    /** Pour chaque point, indice du médoine (valeur entre 0 et k-1) */
+    std::vector<int> membership;
+    /** Coût total (somme des distances au médoine le plus proche) */
     long long cost;
 };
 
 
-// - n: nombre de points
-// - D: vecteur length n*n (row-major)
-// - k: nombre de medoids
-// - seed: seed aléatoire
-// - rank,size: fournis par MPI
-// Retourne Result (valide sur tous les processus)
+/**
+ * @brief Exécute PAM en mode distribué (chaque processus peut recevoir
+ * la matrice D partiellement). Cette API est générale : si MPI n'est pas
+ * activé la fonction peut appeler la version séquentielle.
+ *
+ * @param n Nombre de points
+ * @param D Matrice des distances (taille n*n), stockage row-major
+ * @param k Nombre de médoines
+ * @param seed Graine aléatoire
+ * @param rank Rang MPI (0 si non MPI)
+ * @param size Nombre de processus MPI (1 si non MPI)
+ * @return Result Résultat (sur le rang 0 si distribué)
+ */
 Result pam_distributed(int n, const std::vector<int>& D, int k, int seed, int rank, int size);
 
-// Version séquentielle pratique (wrapper)
+/**
+ * @brief Version séquentielle de PAM (mono-processus).
+ *
+ * @param n Nombre de points
+ * @param D Matrice des distances (taille n*n), stockage row-major
+ * @param k Nombre de médoines
+ * @param seed Graine aléatoire
+ * @return Result Résultat complet (médoines, affectation, coût)
+ */
 Result pam_sequential(int n, const std::vector<int>& D, int k, int seed);
 
 }

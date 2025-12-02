@@ -16,9 +16,24 @@ using namespace std;
 
 namespace pam {
 
+/**
+ * @brief calculer_affectation
+ * Calcule pour chaque point de l'intervalle [start,end) :
+ * - le médoïde le plus proche (index dans medoids)
+ * - la distance au meilleur et au second meilleur médoïde
+ *
+ * @param n nombre de points total
+ * @param D matrice des distances (row-major)
+ * @param medoids indices des medoids
+ * @param start indice de départ (inclus)
+ * @param end indice de fin (exclus)
+ * @param membership sortie : index du medoid (taille end-start)
+ * @param bestDist sortie : distance au medoid le plus proche
+ * @param secondBestDist sortie : distance au 2e meilleur
+ */
 static void calculer_affectation(int n, const vector<int>& D, const vector<int>& medoids,
-                                         int start, int end,
-                                         vector<int>& membership, vector<int>& bestDist, vector<int>& secondBestDist) {
+                                 int start, int end,
+                                 vector<int>& membership, vector<int>& bestDist, vector<int>& secondBestDist) {
     int k = (int)medoids.size();
     for (int ii = start; ii < end; ++ii) {
         int best = numeric_limits<int>::max();
@@ -40,6 +55,18 @@ static void calculer_affectation(int n, const vector<int>& D, const vector<int>&
     }
 }
 
+/**
+ * @brief pam_sequential
+ * Version simple et lisible de l'algorithme PAM (k-médoïdes).
+ * Initialise k médoines aléatoirement puis tente des échanges
+ * (swap) tant qu'ils réduisent le coût total.
+ *
+ * @param n nombre de points
+ * @param D matrice des distances (row-major)
+ * @param k nombre de médoines
+ * @param seed graine aléatoire
+ * @return Result résultat complet (médoines, affectation, coût)
+ */
 Result pam_sequential(int n, const vector<int>& D, int k, int seed) {
     Result res;
     if (k <= 0 || k > n) {
@@ -113,8 +140,21 @@ Result pam_sequential(int n, const vector<int>& D, int k, int seed) {
     return res;
 }
 
+/**
+ * @brief pam_distributed
+ * Version distribuée de PAM : chaque processus reçoit une partie des lignes
+ * de la matrice D (scatterv) ; les calculs de delta sont réduits globalement
+ * pour décider des échanges.
+ *
+ * @param n nombre de points
+ * @param D matrice des distances complète (sur le rang 0) ou vide sur les autres
+ * @param k nombre de médoines
+ * @param seed graine aléatoire
+ * @param rank rang MPI
+ * @param size nombre de processus
+ * @return Result résultat (valide sur le rang 0)
+ */
 #ifndef USE_MPI
-// Fallback: if MPI not enabled, just run sequential PAM
 Result pam_distributed(int n, const vector<int>& D, int k, int seed, int /*rank*/, int /*size*/) {
     return pam_sequential(n, D, k, seed);
 }
