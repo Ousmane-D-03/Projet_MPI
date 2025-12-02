@@ -5,7 +5,8 @@
 #include <algorithm>
 #include <iomanip>
 #include "ForGraph.hpp"
-
+#include "FoydPar.hpp"
+#include "Utils.hpp"
 using namespace std;
 
 inline int& A(int* B, int b, int i, int j) { return B[i*b + j]; }
@@ -112,8 +113,10 @@ void afficherBloc(int* D_local, int block_size, int pid, int nprocs, const strin
  * @param nb_nodes nombre de nœuds du graphe
  * @param p_sqrt racine carrée du nombre de processus
  * @param pid id du processus courant
+ * @param root id du processus racine
+ * @return pointeur vers la matrice globale (uniquement sur le root, NULL sinon)
  */
-void floydBlocsMPI(int* D_local, int nb_nodes, int p_sqrt, int pid){
+int* floydBlocsMPI(int* D_local, int nb_nodes, int p_sqrt, int pid, int root){
     int block_size = nb_nodes/p_sqrt;
     int px = pid/p_sqrt;
     int py = pid%p_sqrt;
@@ -189,119 +192,9 @@ void floydBlocsMPI(int* D_local, int nb_nodes, int p_sqrt, int pid){
     delete[] pivot;
     delete[] row_block;
     delete[] col_block;
+
+    // Rassemble les blocs sur le root pour obtenir la matrice globale
+    return rassemblerMatrice(D_local, nb_nodes, block_size, p_sqrt, root, pid);
 }
 
-int main(int argc, char** argv) {
-    MPI_Init(&argc, &argv);
 
-    int pid, nprocs;
-    MPI_Comm_rank(MPI_COMM_WORLD, &pid);
-    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
-
-    if (argc < 2) {
-        if (pid == 0)
-            cerr << "Usage : " << argv[0] << " fichier.dot [nb_iter]\n";
-        MPI_Finalize();
-        return -1;
-    }
-
-    char* fichier = argv[1];
-    int Niter = (argc>=3) ? atoi(argv[2]) : 50;
-
-    int nb_nodes = 0;
-    map<string,int> my_nodes;
-    int* D1 = nullptr;
-    int* D = nullptr;
-
-    if(pid==0){
-        D1 = lectureGraphe(fichier, &nb_nodes, &my_nodes);
-        if(!D1){
-            cerr << "Erreur : impossible de lire le graphe !\n";
-            MPI_Abort(MPI_COMM_WORLD, 1);
-        }
-        D = InitDk(nb_nodes, D1);
-
-        cout << "=== Matrice globale initiale ===\n";
-        for(int i=0;i<nb_nodes;i++){
-            for(int j=0;j<nb_nodes;j++)
-                if (D[i*nb_nodes + j] == INF)
-                cout << setw(4) << "I";
-            else
-                cout << setw(4) << D[i*nb_nodes + j];
-            cout << "\n";
-        }
-        cout << endl;
-    }
-
-    MPI_Bcast(&nb_nodes, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-    int p_sqrt = (int)sqrt(nprocs);
-    if(p_sqrt*p_sqrt!=nprocs || nb_nodes % p_sqrt !=0){
-        if(pid==0) cerr << "Erreur : nprocs pas carré parfait ou nb_nodes non divisible\n";
-        MPI_Finalize();
-        return -1;
-    }
-
-    int block_size = nb_nodes / p_sqrt;
-    int* D_local = new int[block_size*block_size];
-
-    // ---- TEMPS SÉQUENTIEL ----
-    double temps_seq_total=0.0;
-    if(pid==0){
-        for(int it=0; it<Niter; it++){
-            int* D_seq_init = InitDk(nb_nodes, D1);
-            double t0 = MPI_Wtime();
-            int* D_seq = MatDistance(nb_nodes, D_seq_init);
-            double t1 = MPI_Wtime();
-            temps_seq_total += (t1-t0);
-            delete[] D_seq_init;
-            delete[] D_seq;
-        }
-    }
-    double temps_seq_moy = (pid==0) ? temps_seq_total/Niter : 0.0;
-
-    // ---- TEMPS PARALLELE ----
-    double temps_par_total=0.0;
-    for(int it=0; it<Niter; it++){
-        decouperMatrice(D, D_local, nb_nodes, block_size, p_sqrt, 0, pid);
-        double t0 = MPI_Wtime();
-        floydBlocsMPI(D_local, nb_nodes, p_sqrt, pid);
-        double t1 = MPI_Wtime();
-        double local = t1-t0, global;
-        MPI_Reduce(&local, &global, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-        if(pid==0) temps_par_total += global;
-    }
-    double temps_par_moy = (pid==0) ? temps_par_total/Niter : 0.0;
-
-    // ---- RASSEMBLAGE ET AFFICHAGE ----
-    decouperMatrice(D, D_local, nb_nodes, block_size, p_sqrt, 0, pid); // bloc final
-    floydBlocsMPI(D_local, nb_nodes, p_sqrt, pid);
-    int* D_final = rassemblerMatrice(D_local, nb_nodes, block_size, p_sqrt, 0, pid);
-
-    if(pid==0){
-        cout << "=== Matrice globale après Floyd par blocs MPI ===\n";
-        for(int i=0;i<nb_nodes;i++){
-            for(int j=0;j<nb_nodes;j++)
-                cout << setw(3) << (D_final[i*nb_nodes+j]==INF?"INF":to_string(D_final[i*nb_nodes+j])) << " ";
-            cout << "\n";
-        }
-        cout << "\n";
-        cout << "Temps séquentiel moyen (" << Niter << " itérations) : " << temps_seq_moy << " sec\n";
-        cout << "Temps parallèle moyen  (" << Niter << " itérations) : " << temps_par_moy << " sec\n";
-
-        // ---- ECRITURE CSV ----
-        ofstream fout("resultats_floyd.csv", ios::app);
-        if(fout){
-            fout << nprocs << "," << temps_seq_moy << "," << temps_par_moy << "\n";
-            fout.close();
-        } else cerr << "Erreur ouverture resultats_floyd.csv\n";
-
-        delete[] D_final;
-        delete[] D;
-        delete[] D1;
-    }
-
-    delete[] D_local;
-    MPI_Finalize();
-    return 0;
-}
