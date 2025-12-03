@@ -1,152 +1,703 @@
-# Projet MPI : Classification et Clustering de Séquences d'ARN
+# 🧬 Projet MPI : Classification et Clustering de Séquences d'ARN
 
-## Introduction
+[![Version](https://img.shields.io/badge/version-1.0-blue.svg)](https://github.com/votre-repo)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![MPI](https://img.shields.io/badge/MPI-OpenMPI%20%7C%20MPICH-orange.svg)](https://www.mpi-forum.org/)
 
-Ce projet implémente un pipeline complet d'analyse de séquences biologiques (ARN/ADN) utilisant des algorithmes de graphe et de clustering distribués avec MPI.
+## 📋 Table des matières
 
-Le pipeline comprend trois étapes principales :
-1. **Calcul des distances** entre séquences (Levenshtein, Hamming)
-2. **Calcul des plus courts chemins** avec Floyd-Warshall parallèle
-3. **Clustering des séquences** avec l'algorithme PAM (Partitioning Around Medoids)
+- [Introduction](#-introduction)
+- [Architecture du projet](#-architecture-du-projet)
+- [Prérequis et installation](#-prérequis-et-installation)
+- [Guide de compilation](#-guide-de-compilation)
+- [Guide d'exécution](#-guide-dexécution)
+  - [Module Floyd-Warshall](#1-module-floyd-warshall)
+  - [Module PAM](#2-module-pam)
+  - [Module ARN (Pipeline complet)](#3-module-arn-pipeline-complet)
+- [Formats de fichiers](#-formats-de-fichiers)
+- [Algorithmes implémentés](#-algorithmes-implémentés)
+- [Exemples pratiques](#-exemples-pratiques)
+- [Tests et validation](#-tests-et-validation)
+- [Optimisation et performances](#-optimisation-et-performances)
+- [Dépannage](#-dépannage)
+- [Contribution](#-contribution)
+- [Références](#-références)
 
-## Architecture du Projet
+---
 
-Le projet est organisé en trois modules principaux :
+## 🎯 Introduction
 
-### Module ARN
-- Lecture de séquences au format FASTA
-- Calcul de matrices de distances (Levenshtein, Hamming)
-- Construction de graphes pondérés au format DOT
-- Intégration avec Floyd-Warshall et PAM
+Ce projet implémente un **pipeline complet d'analyse bioinformatique** pour classifier et regrouper des séquences biologiques (ARN/ADN) en utilisant des algorithmes parallèles distribués avec **MPI** (Message Passing Interface).
 
-### Module Floyd-Warshall
-- Implémentation séquentielle classique
-- Implémentation parallèle par blocs (MPI)
-- Lecture de graphes au format DOT (Graphviz)
-- Calcul de la matrice des plus courts chemins
+### 🔬 Cas d'usage
 
-### Module PAM (K-Medoids)
-- Algorithme PAM séquentiel
-- Algorithme PAM distribué (MPI)
-- Clustering basé sur une matrice de distances
+- **Bioinformatique** : Classification de variants génétiques
+- **Épidémiologie** : Analyse de mutations virales (COVID-19, grippe)
+- **Phylogénétique** : Construction d'arbres évolutifs
+- **Recherche génomique** : Identification de familles de gènes
 
-## Installation et Compilation
+### 🚀 Pipeline en 3 étapes
 
-### Prérequis
-
-- **Compilateur C++11** : g++ ≥ 4.8 ou clang++ ≥ 3.3
-- **MPI** : OpenMPI ≥ 1.8 ou MPICH ≥ 3.0
-- **Graphviz** : libcgraph (pour la lecture des fichiers .dot)
-- **Make** : GNU Make
-
-Installation des dépendances sur Ubuntu/Debian :
-```bash
-sudo apt-get install build-essential libopenmpi-dev libgraphviz-dev
+```
+┌─────────────────┐
+│  Séquences ARN  │  (Format FASTA)
+│   A, C, G, T    │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────────────────┐
+│  ÉTAPE 1 : Calcul distances │
+│  • Levenshtein (édition)    │
+│  • Hamming (substitution)   │
+└────────┬────────────────────┘
+         │
+         ▼
+┌─────────────────────────────┐
+│  ÉTAPE 2 : Floyd-Warshall   │
+│  Plus courts chemins (MPI)  │
+│  Découpage en blocs √P×√P   │
+└────────┬────────────────────┘
+         │
+         ▼
+┌─────────────────────────────┐
+│  ÉTAPE 3 : Clustering PAM   │
+│  K-médoïdes distribué (MPI) │
+│  Identification de groupes  │
+└────────┬────────────────────┘
+         │
+         ▼
+┌─────────────────────────────┐
+│  Résultats : Graphe + Stats │
+│  • Fichier DOT (Graphviz)   │
+│  • Médoïdes par cluster     │
+│  • Visualisation PNG/PDF    │
+└─────────────────────────────┘
 ```
 
-### Compilation
+---
 
-Compiler chaque module individuellement :
+## 📁 Architecture du projet
+
+```
+Projet_MPI_ARN/
+│
+├── ARN/                          # Module traitement séquences
+│   ├── ARNSequence.hpp           # Structures et prototypes
+│   ├── ARNSequence.cpp           # Implémentation distances
+│   ├── main_arn.cpp              # Pipeline complet MPI
+│   ├── Makefile                  # Compilation module ARN
+│   ├── Doxyfile                  # Configuration Doxygen
+│   └── README.md                 # Documentation ARN
+│
+├── Floyd/                        # Module Floyd-Warshall
+│   ├── ForGraph.hpp              # Lecture graphes DOT
+│   ├── ForGraph.cpp              # Implémentation lecture
+│   ├── FoydPar.hpp               # Floyd parallèle (prototypes)
+│   ├── FoydPar.cpp               # Floyd par blocs MPI
+│   ├── Utils.hpp/cpp             # Utilitaires affichage
+│   ├── main.cpp                  # Exécutable Floyd standalone
+│   ├── Makefile                  # Compilation Floyd
+│   ├── Exemple_7noeuds.dot       # Graphe test petit
+│   └── Exemple_100noeuds.dot     # Graphe test grand
+│
+├── PAM/                          # Module PAM (K-médoïdes)
+│   ├── PAM.hpp                   # Prototypes PAM
+│   ├── PAM.cpp                   # Implémentation séq. + MPI
+│   ├── main_pam.cpp              # Exécutable PAM standalone
+│   ├── Makefile                  # Compilation PAM
+│   └── Doxyfile                  # Configuration Doxygen
+│
+└── README.md                     # Ce fichier (documentation globale)
+```
+
+### 🔗 Dépendances entre modules
+
+```
+ARN ──────┬──────> Floyd (lecture graphe, calcul chemins)
+          │
+          └──────> PAM (clustering sur distances)
+
+Floyd ────────────> Graphviz (lecture .dot)
+
+PAM ───────────────> Floyd (lecture graphe optionnelle)
+```
+
+---
+
+## 🛠 Prérequis et installation
+
+### Système d'exploitation
+
+- ✅ Linux (Ubuntu 20.04+, Debian 11+, CentOS 8+)
+- ✅ macOS (avec Homebrew)
+- ⚠️ Windows (WSL2 recommandé)
+
+### Dépendances requises
+
+| Logiciel | Version minimale | Installation Ubuntu/Debian |
+|----------|------------------|----------------------------|
+| **GCC** | 4.8+ | `sudo apt install build-essential` |
+| **OpenMPI** | 1.8+ | `sudo apt install libopenmpi-dev openmpi-bin` |
+| **Graphviz** | 2.40+ | `sudo apt install libgraphviz-dev graphviz` |
+| **Make** | 3.81+ | `sudo apt install make` |
+| **Doxygen** (optionnel) | 1.8+ | `sudo apt install doxygen` |
+
+### Installation complète (Ubuntu/Debian)
 
 ```bash
-# Module Floyd-Warshall
+# Mise à jour du système
+sudo apt update && sudo apt upgrade -y
+
+# Installation des dépendances
+sudo apt install -y \
+    build-essential \
+    libopenmpi-dev \
+    openmpi-bin \
+    libgraphviz-dev \
+    graphviz \
+    make \
+    doxygen \
+    git
+
+# Vérification des installations
+gcc --version          # >= 4.8
+mpicc --version        # OpenMPI
+dot -V                 # Graphviz
+make --version         # GNU Make
+```
+
+### Installation macOS (Homebrew)
+
+```bash
+# Installation Homebrew (si nécessaire)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Installation des dépendances
+brew install gcc open-mpi graphviz make doxygen
+
+# Vérification
+mpicc --version
+dot -V
+```
+
+### Téléchargement du projet
+
+```bash
+# Cloner le dépôt
+git clone https://github.com/votre-repo/projet-mpi-arn.git
+cd projet-mpi-arn
+
+# Ou télécharger l'archive
+wget https://votre-url/projet-mpi-arn.tar.gz
+tar -xzvf projet-mpi-arn.tar.gz
+cd projet-mpi-arn
+```
+
+---
+
+## 🔨 Guide de compilation
+
+### Compilation globale (tous les modules)
+
+```bash
+# Depuis la racine du projet
+./build_all.sh
+
+# Ou manuellement
+cd Floyd && make && cd ..
+cd PAM && make && cd ..
+cd ARN && make && cd ..
+```
+
+### Compilation par module
+
+#### 1️⃣ Module Floyd-Warshall
+
+```bash
 cd Floyd
+make clean          # Nettoyer les anciens fichiers
+make                # Compilation
+
+# Vérification
+ls -lh mpi_floyd    # Exécutable créé
+```
+
+**Fichiers générés** :
+- `mpi_floyd` : Exécutable MPI principal
+- `*.o` : Fichiers objets intermédiaires
+
+**Options de compilation** :
+```bash
+make CFLAGS="-O3 -march=native"  # Optimisation maximale
+make DEBUG=1                      # Version debug avec -g
+```
+
+#### 2️⃣ Module PAM
+
+```bash
+cd PAM
+make clean
 make
 
-# Module PAM
+# Génère deux exécutables
+ls -lh pam          # Version séquentielle
+ls -lh pam_mpi      # Version MPI
+```
+
+#### 3️⃣ Module ARN (Pipeline complet)
+
+```bash
+cd ARN
+make clean
+make
+
+# Vérification
+ls -lh arn_main     # Exécutable pipeline complet
+```
+
+**⚠️ Important** : Le module ARN dépend de Floyd et PAM. Compilez-les d'abord !
+
+### Génération de la documentation
+
+```bash
+# Dans chaque module
+cd Floyd
+doxygen Doxyfile
+firefox doc/html/index.html  # Ouvrir la doc
+
 cd ../PAM
-make
+doxygen Doxyfile
 
-# Module ARN (pipeline complet)
 cd ../ARN
-make
+doxygen Doxyfile
 ```
 
-## Utilisation
+### Résolution des problèmes de compilation
 
-### Floyd-Warshall MPI
-
-Calcule la matrice des plus courts chemins d'un graphe :
-
+#### Erreur : `mpi.h not found`
 ```bash
-mpirun -np <P> ./mpi_floyd <graphe.dot>
+# Ubuntu/Debian
+sudo apt install libopenmpi-dev
+
+# Vérifier chemin
+mpicc --showme:compile
 ```
 
-**Paramètres** :
-- `<P>` : Nombre de processus MPI (doit être un carré parfait : 4, 9, 16, 25...)
-- `<graphe.dot>` : Fichier graphe au format DOT
-
-**Contraintes** :
-- Le nombre de nœuds du graphe doit être divisible par √P
-
-**Exemple** :
+#### Erreur : `cgraph.h not found`
 ```bash
+# Installer Graphviz dev
+sudo apt install libgraphviz-dev
+
+# Ou spécifier le chemin
+make INCLUDES="-I/usr/include/graphviz"
+```
+
+#### Erreur : Undefined reference to `MPI_*`
+```bash
+# Vérifier que mpic++ est utilisé
+which mpic++
+# Recompiler avec
+make CXX=mpic++
+```
+
+---
+
+## 🚀 Guide d'exécution
+
+### 1️⃣ Module Floyd-Warshall
+
+#### 🎯 Objectif
+Calculer la **matrice des plus courts chemins** entre tous les sommets d'un graphe pondéré.
+
+#### 📝 Syntaxe
+
+```bash
+mpirun -np <P> ./mpi_floyd <fichier_graphe.dot>
+```
+
+#### 📋 Paramètres
+
+| Paramètre | Description | Contraintes |
+|-----------|-------------|-------------|
+| `<P>` | Nombre de processus MPI | **Doit être un carré parfait** (4, 9, 16, 25, 36...) |
+| `<fichier.dot>` | Graphe au format Graphviz DOT | Nombre de nœuds divisible par √P |
+
+#### ✅ Exemples d'exécution
+
+**Exemple 1 : Petit graphe (6 nœuds, 4 processus)**
+
+```bash
+cd Floyd
+
+# Exécution avec 4 processus (2×2)
 mpirun -np 4 ./mpi_floyd Exemple_7noeuds.dot
+
+# Sortie attendue :
+# === Matrice d'adjacence ===
+# ...
+# === Matrice de distances initiale ===
+# ...
+# === Matrice de distances (séquentiel) ===
+# ...
+# Temps séquentiel : 0.000123 sec
+# === Matrice globale après Floyd par blocs MPI ===
+# ...
+# Temps parallèle : 0.000456 sec
 ```
 
-### PAM (K-Medoids)
+**Exemple 2 : Grand graphe (100 nœuds, 16 processus)**
 
-Effectue un clustering PAM sur un graphe :
+```bash
+# Avec 16 processus (4×4)
+mpirun -np 16 ./mpi_floyd Exemple_100noeuds.dot
+
+# Rediriger la sortie vers un fichier
+mpirun -np 16 ./mpi_floyd Exemple_100noeuds.dot > resultats.txt
+```
+
+**Exemple 3 : Exécution sur cluster**
+
+```bash
+# Fichier hostfile (liste des machines)
+cat > hostfile << EOF
+node1 slots=4
+node2 slots=4
+node3 slots=4
+node4 slots=4
+EOF
+
+# Exécution distribuée
+mpirun -np 16 --hostfile hostfile ./mpi_floyd graphe_large.dot
+```
+
+#### 📊 Interpréter les résultats
+
+La sortie contient trois matrices :
+
+1. **Matrice d'adjacence** : Poids directs des arêtes
+   ```
+   === Matrice d'adjacence ===
+       0  1  2  3
+   0   0  5  0  0
+   1   5  0  3  0
+   2   0  3  0  7
+   3   0  0  7  0
+   ```
+
+2. **Matrice initiale** : Avec INF pour chemins inexistants
+   ```
+   === Matrice de distances initiale ===
+       0    1    2    3
+   0   0    5  INF  INF
+   1   5    0    3  INF
+   2 INF    3    0    7
+   3 INF  INF    7    0
+   ```
+
+3. **Matrice finale** : Plus courts chemins
+   ```
+   === Matrice globale après Floyd par blocs MPI ===
+       0  1  2  3
+   0   0  5  8 15
+   1   5  0  3 10
+   2   8  3  0  7
+   3  15 10  7  0
+   ```
+
+**Lecture** : La distance minimale du nœud 0 au nœud 3 est **15**.
+
+#### ⚙️ Contraintes techniques
+
+1. **P doit être un carré parfait**
+   ```bash
+   # ✅ Valide
+   mpirun -np 4 ./mpi_floyd ...   # 2×2
+   mpirun -np 9 ./mpi_floyd ...   # 3×3
+   mpirun -np 16 ./mpi_floyd ...  # 4×4
+   
+   # ❌ Invalide
+   mpirun -np 5 ./mpi_floyd ...   # Erreur !
+   mpirun -np 12 ./mpi_floyd ...  # Erreur !
+   ```
+
+2. **Nombre de nœuds divisible par √P**
+   ```bash
+   # Graphe de 100 nœuds
+   mpirun -np 4 ...   # ✅ 100 % √4 = 100 % 2 = 0 (OK)
+   mpirun -np 9 ...   # ❌ 100 % √9 = 100 % 3 ≠ 0 (ERREUR)
+   mpirun -np 16 ...  # ✅ 100 % √16 = 100 % 4 = 0 (OK)
+   ```
+
+3. **Taille mémoire**
+   - Chaque processus stocke un bloc (n/√P)² entiers
+   - Exemple : n=1000, P=16 → chaque proc stocke 250×250 = 62500 entiers ≈ 250 Ko
+
+---
+
+### 2️⃣ Module PAM
+
+#### 🎯 Objectif
+Partitionner les données en **k clusters** en utilisant l'algorithme PAM (Partitioning Around Medoids).
+
+#### 📝 Syntaxe
 
 ```bash
 # Version séquentielle
-./pam <graphe.dot> <k> [seed]
+./pam <fichier_graphe.dot> <k> [seed]
 
 # Version MPI
-mpirun -np <P> ./pam_mpi <graphe.dot> <k> [seed]
+mpirun -np <P> ./pam_mpi <fichier_graphe.dot> <k> [seed]
 ```
 
-**Paramètres** :
-- `<graphe.dot>` : Fichier graphe au format DOT
-- `<k>` : Nombre de clusters désirés
-- `[seed]` : Graine aléatoire (optionnel, défaut : 12345)
+#### 📋 Paramètres
 
-**Exemple** :
+| Paramètre | Description | Valeur par défaut |
+|-----------|-------------|-------------------|
+| `<fichier.dot>` | Graphe (ou matrice de distances) | - |
+| `<k>` | Nombre de clusters | - |
+| `[seed]` | Graine aléatoire (reproductibilité) | 12345 |
+
+#### ✅ Exemples d'exécution
+
+**Exemple 1 : Clustering séquentiel**
+
 ```bash
-mpirun -np 4 ./pam_mpi ../Exemple2.dot 3
+cd PAM
+
+# 3 clusters, graine par défaut
+./pam ../Floyd/Exemple_100noeuds.dot 3
+
+# Sortie :
+# Cost: 1245
+# Medoids: 12 47 89
+# Counts per medoid: 32 35 33
+# Membership:
+# Point 0 -> Medoid 0
+# Point 1 -> Medoid 0
+# Point 2 -> Medoid 1
+# ...
 ```
 
-### Pipeline ARN Complet
+**Exemple 2 : Clustering MPI avec différentes graines**
 
-Analyse complète de séquences d'ARN avec clustering :
+```bash
+# Test avec plusieurs graines pour évaluer stabilité
+for seed in 42 123 456 789; do
+    echo "=== Seed: $seed ==="
+    mpirun -np 4 ./pam_mpi ../Floyd/Exemple_100noeuds.dot 5 $seed | grep "Cost"
+done
+
+# Sortie :
+# === Seed: 42 ===
+# Cost: 1089
+# === Seed: 123 ===
+# Cost: 1102
+# === Seed: 456 ===
+# Cost: 1089
+# === Seed: 789 ===
+# Cost: 1095
+```
+
+**Exemple 3 : Tester différentes valeurs de k**
+
+```bash
+# Méthode du coude (elbow method)
+for k in 2 3 4 5 6 7 8; do
+    echo -n "k=$k : "
+    mpirun -np 4 ./pam_mpi ../Floyd/Exemple_100noeuds.dot $k 42 | grep "Cost:"
+done
+
+# Sortie :
+# k=2 : Cost: 2340
+# k=3 : Cost: 1245
+# k=4 : Cost: 987
+# k=5 : Cost: 856
+# k=6 : Cost: 798
+# k=7 : Cost: 765
+# k=8 : Cost: 742
+```
+
+Choisir k où le coût commence à stagner (ici : k≈5).
+
+#### 📊 Interpréter les résultats
+
+```
+Cost: 1245                    # Coût total (somme distances aux médoïdes)
+Medoids: 12 47 89             # Indices des 3 médoïdes choisis
+Counts per medoid: 32 35 33   # Répartition : 32 points dans cluster 0, etc.
+
+Membership:
+Point 0 -> Medoid 0           # Point 0 appartient au cluster 0
+Point 1 -> Medoid 0
+Point 2 -> Medoid 1           # Point 2 appartient au cluster 1
+...
+```
+
+**Médoïdes** : Points réels les plus centraux de chaque cluster (≠ centroïdes abstraits en k-means).
+
+#### 🎨 Visualiser les clusters
+
+```bash
+# Créer un graphe avec coloration par cluster
+python3 visualize_clusters.py resultats_pam.txt > clusters.dot
+dot -Tpng clusters.dot -o clusters.png
+```
+
+*(Script `visualize_clusters.py` à créer pour parser la sortie PAM)*
+
+---
+
+### 3️⃣ Module ARN (Pipeline complet)
+
+#### 🎯 Objectif
+Analyser des séquences biologiques de bout en bout : calcul de distances → plus courts chemins → clustering.
+
+#### 📝 Syntaxe
 
 ```bash
 mpirun -np <P> ./arn_main <fichier.fasta> <epsilon> <k> [output.dot]
 ```
 
-**Paramètres** :
-- `<fichier.fasta>` : Fichier de séquences au format FASTA
-- `<epsilon>` : Seuil de distance pour créer une arête dans le graphe
-- `<k>` : Nombre de clusters pour PAM
-- `[output.dot]` : Fichier de sortie (optionnel, défaut : arn_graph.dot)
+#### 📋 Paramètres
 
-**Exemple** :
+| Paramètre | Description | Exemple |
+|-----------|-------------|---------|
+| `<fichier.fasta>` | Séquences au format FASTA | `sequences.fasta` |
+| `<epsilon>` | Seuil distance pour arêtes | 15 |
+| `<k>` | Nombre de clusters PAM | 3 |
+| `[output.dot]` | Fichier sortie (optionnel) | `results.dot` |
+
+#### ✅ Exemples d'exécution
+
+**Exemple 1 : Dataset simple**
+
 ```bash
-mpirun -np 4 ./arn_main sequences.fasta 15 3 results.dot
-```
+cd ARN
 
-## Formats de Fichiers
-
-### Format FASTA
-
-Format d'entrée pour les séquences biologiques :
-
-```
+# 1. Créer un fichier FASTA de test
+cat > test_sequences.fasta << 'EOF'
 >Sequence_A
-ACGTACGTTAGCTAGC
+ACGTACGTTAGCTAGCTAGC
 >Sequence_B
-ACGTTAGCTAGCTAGC
+ACGTTAGCTAGCTAGCTAGC
 >Sequence_C
-TGCATGCATGCATGCA
+TGCATGCATGCATGCATGCA
+>Sequence_D
+ACGTACGTACGTACGTACGT
+>Sequence_E
+TGCATGCATGCATGCATGCA
+EOF
+
+# 2. Exécuter le pipeline (4 processus, epsilon=10, k=2)
+mpirun -np 4 ./arn_main test_sequences.fasta 10 2 output.dot
+
+# Sortie :
+# Fichier FASTA lu avec succès : 5 séquence(s)
+# Nombre de séquences : 5
+# Matrice des plus courts chemins calculée.
+# Résultat PAM :
+# Médoïdes : 1 2
+# Graphe écrit dans output.dot
 ```
 
-- Les lignes commençant par `>` contiennent les labels/identifiants
-- Les lignes suivantes contiennent la séquence (A, C, G, T/U)
-- Les séquences peuvent s'étendre sur plusieurs lignes
+**Exemple 2 : Dataset réel (COVID-19)**
 
-### Format DOT (Graphviz)
+```bash
+# Télécharger des séquences SARS-CoV-2
+# (exemple fictif, adaptez selon vos données)
+mpirun -np 16 ./arn_main \
+    covid_variants.fasta \
+    20 \
+    5 \
+    covid_clusters.dot
 
-Format de graphe utilisé en entrée/sortie :
+# Visualiser
+dot -Tpng covid_clusters.dot -o covid_clusters.png
+```
+
+**Exemple 3 : Batch processing**
+
+```bash
+#!/bin/bash
+# process_all.sh
+
+for epsilon in 5 10 15 20 25; do
+    for k in 2 3 4 5; do
+        output="results_e${epsilon}_k${k}.dot"
+        echo "Processing epsilon=$epsilon, k=$k"
+        mpirun -np 4 ./arn_main sequences.fasta $epsilon $k $output
+    done
+done
+```
+
+#### 📊 Workflow détaillé
+
+```
+┌─────────────────────────────────────────────────────┐
+│ 1. LECTURE FASTA                                    │
+│    - Parse les séquences                            │
+│    - Attribue IDs et labels                         │
+│    Output: vector<ARNSeq>                           │
+└──────────────────┬──────────────────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────────────────┐
+│ 2. CALCUL MATRICE DISTANCES (Processus 0 only)     │
+│    - Levenshtein pour chaque paire (i,j)           │
+│    - Complexité : O(n² × m²)                        │
+│    Output: int* distanceMatrix                      │
+└──────────────────┬──────────────────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────────────────┐
+│ 3. DÉCOUPAGE ET DISTRIBUTION (MPI)                  │
+│    - Processus 0 découpe en blocs √P×√P            │
+│    - MPI_Send vers chaque processus                 │
+│    Output: int* D_local sur chaque processus        │
+└──────────────────┬──────────────────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────────────────┐
+│ 4. FLOYD-WARSHALL PARALLÈLE (Tous processus)       │
+│    - Algorithme par blocs                           │
+│    - Communications ligne/colonne                   │
+│    Output: int* D_global (sur processus 0)          │
+└──────────────────┬──────────────────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────────────────┐
+│ 5. CLUSTERING PAM (Processus 0)                    │
+│    - Initialisation k médoïdes aléatoires          │
+│    - Itérations swap jusqu'à convergence           │
+│    Output: Result {medoids, membership, cost}       │
+└──────────────────┬──────────────────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────────────────┐
+│ 6. ÉCRITURE GRAPHE DOT (Processus 0)               │
+│    - Nœuds = séquences                             │
+│    - Arêtes = distances < epsilon                  │
+│    Output: fichier .dot                             │
+└─────────────────────────────────────────────────────┘
+```
+
+#### 🎨 Visualisation des résultats
+
+```bash
+# Générer image PNG
+dot -Tpng output.dot -o output.png
+
+# Générer PDF haute qualité
+dot -Tpdf output.dot -o output.pdf
+
+# Format SVG (vectoriel, interactive)
+dot -Tsvg output.dot -o output.svg
+
+# Ouvrir automatiquement
+dot -Tpng output.dot -o output.png && xdg-open output.png
+```
+
+#### 🔍 Analyser la sortie DOT
 
 ```dot
 graph ARN {
@@ -155,247 +706,110 @@ graph ARN {
   seq1 [label="Sequence_B"];
   seq2 [label="Sequence_C"];
   
-  seq0 -- seq1 [weight=4, label="4"];
-  seq0 -- seq2 [weight=12, label="12"];
-  seq1 -- seq2 [weight=8, label="8"];
+  seq0 -- seq1 [weight=4, label="4"];    # Distance = 4
+  seq0 -- seq2 [weight=12, label="12"];  # Distance = 12
+  seq1 -- seq2 [weight=8, label="8"];    # Distance = 8
 }
 ```
 
-Visualisation du graphe :
-```bash
-dot -Tpng output.dot -o output.png
-dot -Tpdf output.dot -o output.pdf
-```
-
-## Algorithmes Implémentés
-
-### Distance de Levenshtein
-
-Calcule le nombre minimum d'opérations d'édition (insertion, suppression, substitution) nécessaires pour transformer une séquence en une autre.
-
-- **Complexité** : O(m × n) où m et n sont les longueurs des séquences
-- **Utilisation** : Séquences de longueurs différentes
-
-### Distance de Hamming
-
-Compte le nombre de positions où deux séquences diffèrent.
-
-- **Complexité** : O(n) où n est la longueur des séquences
-- **Contrainte** : Séquences de même longueur uniquement
-
-### Floyd-Warshall
-
-Calcule les plus courts chemins entre toutes les paires de nœuds d'un graphe.
-
-- **Complexité séquentielle** : O(n³)
-- **Complexité parallèle** : O(n³/P) avec P processus (théorique)
-- **Parallélisation** : Découpage en blocs avec communications MPI
-
-### PAM (Partitioning Around Medoids)
-
-Algorithme de clustering qui sélectionne k objets représentatifs (médoïdes) et affecte chaque objet au médoïde le plus proche.
-
-- **Complexité** : O(k × n² × iter) où iter est le nombre d'itérations
-- **Avantage** : Robuste aux outliers (contrairement à k-means)
-
-## Parallélisation MPI
-
-### Floyd-Warshall par Blocs
-
-Le graphe est découpé en blocs carrés de taille (n/√P) × (n/√P).
-
-Pour chaque itération k :
-1. Le processus pivot (k,k) calcule son bloc
-2. Broadcast du bloc pivot sur sa ligne et colonne
-3. Mise à jour des blocs de la ligne k et colonne k
-4. Mise à jour des autres blocs
-
-**Communications** :
-- `MPI_Comm_split` : création de communicateurs ligne/colonne
-- `MPI_Bcast` : diffusion des blocs
-- `MPI_Barrier` : synchronisation entre phases
-
-### PAM Distribué
-
-La matrice de distances est distribuée par lignes entre les processus.
-
-Pour chaque tentative d'échange (médoïde ↔ candidat) :
-1. Chaque processus calcule le delta local
-2. `MPI_Allreduce` pour obtenir le delta global
-3. Application de l'échange si bénéfique
-4. `MPI_Bcast` des nouveaux médoïdes
-
-## Performances
-
-### Scalabilité
-
-| Algorithme      | Complexité Séq. | Complexité Par. | Speedup Idéal |
-|-----------------|-----------------|-----------------|---------------|
-| Levenshtein     | O(m·n)          | -               | -             |
-| Floyd-Warshall  | O(n³)           | O(n³/P)         | P             |
-| PAM             | O(k·n²·iter)    | O(k·n²·iter/P)  | P             |
-
-### Goulets d'Étranglement
-
-- **Communications MPI** : Surcoût non négligeable pour petits graphes
-- **Synchronisation** : Barrières entre phases Floyd-Warshall
-- **Mémoire** : Chaque processus doit stocker au moins un bloc (n/√P)²
-- **Déséquilibre** : Si n non divisible par √P
-
-### Conseils d'Optimisation
-
-1. **Choisir P = carré parfait** pour Floyd-Warshall
-2. **n divisible par √P** pour équilibrage optimal
-3. **Minimiser les itérations PAM** avec bonne initialisation
-4. **Utiliser InfiniBand** pour communications rapides
-5. **Compiler avec -O3** pour optimisations du compilateur
-
-## Exemples d'Utilisation
-
-### Workflow Complet
-
-```bash
-# 1. Créer un fichier FASTA de test
-cat > sequences.fasta << EOF
->Seq_A
-ACGTACGTTAGCTAGC
->Seq_B
-ACGTTAGCTAGCTAGC
->Seq_C
-TGCATGCATGCATGCA
->Seq_D
-ACGTACGTACGTACGT
-EOF
-
-# 2. Exécuter le pipeline complet avec 4 processus
-mpirun -np 4 ./arn_main sequences.fasta 10 2 results.dot
-
-# 3. Visualiser le graphe résultant
-dot -Tpng results.dot -o results.png
-xdg-open results.png
-```
-
-### Floyd-Warshall Seul
-
-```bash
-# Analyser un graphe existant
-mpirun -np 9 ./mpi_floyd Floyd/Exemple_100noeuds.dot
-```
-
-### PAM Seul
-
-```bash
-# Clustering avec 3 clusters
-mpirun -np 4 ./pam_mpi Exemple2.dot 3 42
-```
-
-## Tests
-
-### Exécuter les Tests
-
-Chaque module possède une cible `test` dans son Makefile :
-
-```bash
-# Test Floyd-Warshall
-cd Floyd
-make test
-
-# Test PAM
-cd ../PAM
-make test
-
-# Test ARN
-cd ../ARN
-make test
-```
-
-### Validation des Résultats
-
-Pour vérifier la cohérence entre version séquentielle et parallèle :
-
-```bash
-# Comparer Floyd séquentiel vs parallèle
-./mpi_floyd graphe.dot > seq.txt
-mpirun -np 4 ./mpi_floyd graphe.dot > par.txt
-diff seq.txt par.txt
-```
-
-## Limitations Connues
-
-1. **Contrainte P = carré parfait** pour Floyd-Warshall
-   - Solution future : découpage rectangulaire
-
-2. **Valeur INF fixée à 1000**
-   - Peut causer des problèmes si poids > 1000
-   - Solution : utiliser INT_MAX avec gestion overflow
-
-3. **Pas de gestion mémoire distribuée**
-   - Chaque processus doit pouvoir charger sa partie
-   - Solution : out-of-core algorithms pour très grands graphes
-
-4. **PAM peut converger vers optimum local**
-   - Dépend de l'initialisation aléatoire
-   - Solution : multiple restarts avec différentes graines
-
-## Améliorations Futures
-
-### Algorithmes
-- Implémentation de k-means pour comparaison avec PAM
-- Support d'autres distances (DTW pour séries temporelles)
-- Algorithmes approximatifs : CLARANS, FastPAM
-- Clustering hiérarchique (UPGMA, Neighbor-Joining)
-
-### Performances
-- Parallélisation GPU avec CUDA
-- Optimisation SIMD pour calcul de distances
-- Compression de la matrice (graphes creux)
-- Checkpointing pour longues exécutions
-
-### Fonctionnalités
-- Interface Python (bindings pybind11)
-- Visualisation interactive (D3.js)
-- Export vers formats standards (Newick, Nexus)
-- Support de séquences protéiques (BLOSUM62)
-
-## Contribution
-
-### Style de Code
-- C++11 standard
-- Indentation : 4 espaces
-- Documentation : Doxygen
-- Tests unitaires requis
-
-### Processus
-1. Fork du projet
-2. Créer une branche feature
-3. Commiter les changements
-4. Pousser vers la branche
-5. Ouvrir une Pull Request
-
-## Licence
-
-Ce projet est distribué sous licence MIT.
-
-## Auteurs
-
-- Projet MPI 2025
-- Contributeurs : [Liste à compléter]
-
-## Références
-
-- Floyd, R. W. (1962). Algorithm 97: Shortest path. Communications of the ACM.
-- Kaufman, L., & Rousseeuw, P. J. (1990). Finding Groups in Data: An Introduction to Cluster Analysis.
-- Levenshtein, V. I. (1966). Binary codes capable of correcting deletions, insertions, and reversals.
-- MPI Forum. MPI: A Message-Passing Interface Standard. Version 3.1.
-
-## Contact
-
-Pour toute question ou suggestion :
-- Issues GitHub : [URL du projet]
-- Email : [email à compléter]
+**Lecture** :
+- Chaque `seqX` est une séquence
+- Une arête existe si `distance(seq_i, seq_j) < epsilon`
+- Le poids (label) indique la distance exacte
 
 ---
 
-> **Note** : Ce projet nécessite une bonne compréhension des concepts de programmation parallèle et des algorithmes de graphe. Pour une introduction, consulter les références citées.
+## 📄 Formats de fichiers
 
-> **Attention** : Les graphes de très grande taille (n > 10000) peuvent nécessiter des ressources importantes. Tester d'abord avec de petits exemples.
+### Format FASTA (Entrée ARN)
+
+#### Structure
+
+```
+>Identifiant_Séquence [Description optionnelle]
+SEQUENCEACGTACGT...
+SEQUENCEACGTACGT...  (peut continuer sur plusieurs lignes)
+>Deuxième_Séquence
+ACGTACGT...
+```
+
+#### Règles
+
+- Lignes commençant par `>` : En-têtes (labels)
+- Caractères valides : A, C, G, T (ADN) ou U (ARN)
+- Espaces et retours à la ligne ignorés dans les séquences
+- Pas de limite de longueur
+
+#### Exemple complet
+
+```fasta
+>NC_045512.2 Severe acute respiratory syndrome coronavirus 2 isolate Wuhan-Hu-1
+ATTAAAGGTTTATACCTTCCCAGGTAACAAACCAACCAACTTTCGATCTCTTGTAGATCT
+GTTCTCTAAACGAACTTTAAAATCTGTGTGGCTGTCACTCGGCTGCATGCTTAGTGCACT
+CACGCAGTATAATTAATAACTAATTACTGTCGTTGACAGGACACGAGTAACTCGTCTATC
+
+>MT192759.1 SARS-CoV-2 isolate USA/CA1/2020
+ATTAAAGGTTTATACCTTCCCAGGTAACAAACCAACCAACTTTCGATCTCTTGTAGATCT
+GTTCTCTAAACGAACTTTAAAATCTGTGTGGCTGTCACTCGGCTGCATGCTTAGTGCACT
+CACGCAGTATAATTAATAACTAATTACTGTCGTTGACAGGACACGAGTAACTCGTCTATC
+```
+
+#### Création rapide pour tests
+
+```bash
+# Générer 10 séquences aléatoires de 100 nucléotides
+python3 << 'EOF'
+import random
+for i in range(10):
+    print(f">Seq_{i}")
+    seq = ''.join(random.choices('ACGT', k=100))
+    print(seq)
+EOF
+```
+
+### Format DOT (Graphviz)
+
+#### Structure minimale
+
+```dot
+graph nom_graphe {
+    // Déclaration des nœuds
+    node0 [label="Label A"];
+    node1 [label="Label B"];
+    
+    // Déclaration des arêtes
+    node0 -- node1 [weight=5, label="5"];
+}
+```
+
+#### Attributs importants
+
+| Attribut | Cible | Description |
+|----------|-------|-------------|
+| `label` | nœud/arête | Texte affiché |
+| `weight` | arête | Poids pour Floyd-Warshall |
+| `color` | nœud/arête | Couleur (red, blue, "#FF0000") |
+| `shape` | nœud | Forme (circle, box, diamond) |
+| `style` | nœud/arête | Style (filled, dashed, bold) |
+
+#### Exemple complet
+
+```dot
+graph example {
+    // Configuration globale
+    rankdir=LR;
+    node [shape=circle, style=filled, fillcolor=lightblue];
+    edge [color=gray, fontcolor=black];
+    
+    // Nœuds
+    A [label="Départ", fillcolor=green];
+    B [label="Intermédiaire"];
+    C [label="Arrivée", fillcolor=red];
+    
+    // Arêtes pondérées
+    A -- B [weight=10, label="10 km"];
+    B -- C [weight=5, label="5 km"];
+    A -- C [weight=20, label="20 km", style=dashed];
+}
+```
+
