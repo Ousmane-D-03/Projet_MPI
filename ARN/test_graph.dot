@@ -1,0 +1,8 @@
+graph ARN {
+  rankdir=LR;
+  seq0 [label="seq1"];
+  seq1 [label="seq2"];
+  seq2 [label="seq3"];
+
+  seq0 -- seq1 [weight=0, label="0"];
+}
