@@ -155,7 +155,7 @@ Result pam_sequential(int n, const vector<int>& D, int k, int seed) {
  * @return Result résultat (valide sur le rang 0)
  */
 #ifndef USE_MPI
-Result pam_distributed(int n, const vector<int>& D, int k, int seed, int /*rank*/, int /*size*/) {
+Result pam_distributed(int n, const vector<int>& D, int k, int seed, int , int ) {
     return pam_sequential(n, D, k, seed);
 }
 #else
