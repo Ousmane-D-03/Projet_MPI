@@ -1,0 +1,41 @@
+# Makefile.hybrid - Version HYBRIDE pour PAM
+# À placer dans PAM/Makefile.hybrid (garde Makefile original)
+# Utilisation: make -f Makefile.hybrid
+
+CXX = g++
+MPICXX = mpic++
+CFLAGS = -O2 -std=c++11 -fopenmp -DWITH_GRAPHVIZ
+INCLUDES = -I../Floyd
+LDFLAGS = -lcgraph -lgvc -fopenmp
+
+SRCS_HYBRID = main_pam_hybrid.cpp PAM_hybrid.cpp ../Floyd/ForGraph.cpp 
+OBJS_HYBRID = $(SRCS_HYBRID:.cpp=.o)
+
+all: pam_hybrid pam_mpi_hybrid
+
+# Version séquentielle + OpenMP
+pam_hybrid: $(OBJS_HYBRID)
+	$(CXX) $(CFLAGS) -o $@ $(OBJS_HYBRID) $(LDFLAGS)
+	@echo "✅ Compilé: pam_hybrid (séquentiel + OpenMP)"
+
+# Version MPI + OpenMP (HYBRIDE)
+pam_mpi_hybrid:
+	$(MPICXX) -DUSE_MPI -DWITH_GRAPHVIZ $(CFLAGS) $(INCLUDES) \
+		-o pam_mpi_hybrid \
+		main_pam_hybrid.cpp PAM_hybrid.cpp ../Floyd/ForGraph.cpp \
+		$(LDFLAGS)
+	@echo "✅ Compilé: pam_mpi_hybrid (HYBRIDE MPI + OpenMP)"
+
+%.o: %.cpp
+	$(CXX) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+test: pam_hybrid pam_mpi_hybrid
+	@echo "\n=== Test PAM séquentiel + OpenMP ==="
+	OMP_NUM_THREADS=4 ./pam_hybrid ../Exemple2.dot 3
+	@echo "\n=== Test PAM HYBRIDE (2 procs × 2 threads) ==="
+	OMP_NUM_THREADS=2 mpirun -np 2 ./pam_mpi_hybrid ../Exemple2.dot 3
+
+clean:
+	rm -f $(OBJS_HYBRID) pam_hybrid pam_mpi_hybrid
+
+.PHONY: all clean test

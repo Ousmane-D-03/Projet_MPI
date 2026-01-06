@@ -1,0 +1,64 @@
+# Makefile.hybrid - Version HYBRIDE pour ARN
+# À placer dans ARN/Makefile.hybrid (garde Makefile original)
+# Utilisation: make -f Makefile.hybrid
+
+CXX = mpic++
+CXXFLAGS = -Wall -Wextra -O2 -std=c++11 -fopenmp -DUSE_MPI -DWITH_GRAPHVIZ
+LDFLAGS = -fopenmp -lcgraph
+
+# Fichiers source HYBRIDE
+SOURCES = ARNSequence_hybrid.cpp main_arn_hybrid.cpp \
+          ../PAM/PAM_hybrid.cpp \
+          ../Floyd/FoydPar.cpp ../Floyd/ForGraph.cpp ../Floyd/Utils.cpp
+
+OBJECTS = $(SOURCES:.cpp=.o)
+TARGET = arn_hybrid
+
+all: $(TARGET)
+	@echo "✅ Compilé: $(TARGET) (HYBRIDE MPI + OpenMP)"
+
+$(TARGET): $(OBJECTS)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# Test simple
+test: $(TARGET)
+	@echo "\n=== Test HYBRIDE (4 procs × 2 threads) ==="
+	@echo ">seq1" > test_hybrid.fasta
+	@echo "ACGTACGTACGTACGT" >> test_hybrid.fasta
+	@echo ">seq2" >> test_hybrid.fasta
+	@echo "ACGTACGTACGTACGT" >> test_hybrid.fasta
+	@echo ">seq3" >> test_hybrid.fasta
+	@echo "TGCATGCATGCATGCA" >> test_hybrid.fasta
+	@echo ">seq4" >> test_hybrid.fasta
+	@echo "ACGTACGTACGTACGT" >> test_hybrid.fasta
+	OMP_NUM_THREADS=2 mpirun -np 4 ./$(TARGET) test_hybrid.fasta 10 2 test_output.dot
+
+# Test avec 500 séquences (si disponible)
+test_500:
+	@if [ -f ../dataset_500seq.fasta ]; then \
+		echo "=== Test 500 séquences (4 procs × 4 threads) ==="; \
+		OMP_NUM_THREADS=4 mpirun -np 4 ./$(TARGET) ../dataset_500seq.fasta 70 4 output_500_hybrid.dot; \
+	else \
+		echo "Fichier dataset_500seq.fasta non trouvé"; \
+	fi
+
+# Benchmark configs
+benchmark: $(TARGET)
+	@echo "=== Benchmark Hybride ===" > benchmark_hybrid.txt
+	@echo "Config (P×T) | Temps (sec)" >> benchmark_hybrid.txt
+	@echo "-------------|------------" >> benchmark_hybrid.txt
+	@for p in 1 4 9; do \
+		for t in 1 2 4; do \
+			echo -n "$$p × $$t | " >> benchmark_hybrid.txt; \
+			OMP_NUM_THREADS=$$t mpirun -np $$p ./$(TARGET) test_hybrid.fasta 10 2 /dev/null 2>&1 | grep "TEMPS TOTAL" | awk '{print $$4}' >> benchmark_hybrid.txt; \
+		done; \
+	done
+	@cat benchmark_hybrid.txt
+
+clean:
+	rm -f $(OBJECTS) $(TARGET) test_hybrid.fasta test_output.dot output_*_hybrid.dot benchmark_hybrid.txt
+
+.PHONY: all clean test test_500 benchmark

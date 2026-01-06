@@ -1,4 +1,6 @@
-// PAM.cpp
+// PAM_hybrid.cpp - Version HYBRIDE MPI + OpenMP
+// À placer dans PAM/PAM_hybrid.cpp (garde PAM.cpp original)
+
 #include "PAM.hpp"
 
 #include <algorithm>
@@ -11,34 +13,28 @@
 #include <mpi.h>
 #endif
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 using namespace std;
 
 namespace pam {
 
 /**
- * @brief calculer_affectation
- * Calcule pour chaque point de l'intervalle [start,end) :
- * - le médoïde le plus proche (index dans medoids)
- * - la distance au meilleur et au second meilleur médoïde
- *
- * @param n nombre de points total
- * @param D matrice des distances (row-major)
- * @param medoids indices des medoids
- * @param start indice de départ (inclus)
- * @param end indice de fin (exclus)
- * @param membership sortie : index du medoid (taille end-start)
- * @param bestDist sortie : distance au medoid le plus proche
- * @param secondBestDist sortie : distance au 2e meilleur
+ * @brief calculer_affectation - Version HYBRIDE avec OpenMP
  */
 static void calculer_affectation(int n, const vector<int>& D, const vector<int>& medoids,
                                  int start, int end,
                                  vector<int>& membership, vector<int>& bestDist, vector<int>& secondBestDist) {
     int k = (int)medoids.size();
+    
+    #pragma omp parallel for schedule(static)
     for (int ii = start; ii < end; ++ii) {
         int best = numeric_limits<int>::max();
         int second = numeric_limits<int>::max();
         int bestMed = -1;
+        
         for (int m = 0; m < k; ++m) {
             int dist = D[ii*n + medoids[m]];
             if (dist < best) {
@@ -49,6 +45,7 @@ static void calculer_affectation(int n, const vector<int>& D, const vector<int>&
                 second = dist;
             }
         }
+        
         membership[ii - start] = bestMed;
         bestDist[ii - start] = best;
         secondBestDist[ii - start] = second;
@@ -56,16 +53,7 @@ static void calculer_affectation(int n, const vector<int>& D, const vector<int>&
 }
 
 /**
- * @brief pam_sequential
- * Version simple et lisible de l'algorithme PAM (k-médoïdes).
- * Initialise k médoines aléatoirement puis tente des échanges
- * (swap) tant qu'ils réduisent le coût total.
- *
- * @param n nombre de points
- * @param D matrice des distances (row-major)
- * @param k nombre de médoines
- * @param seed graine aléatoire
- * @return Result résultat complet (médoines, affectation, coût)
+ * @brief pam_sequential - Version avec OpenMP
  */
 Result pam_sequential(int n, const vector<int>& D, int k, int seed) {
     Result res;
@@ -77,7 +65,6 @@ Result pam_sequential(int n, const vector<int>& D, int k, int seed) {
     vector<int> medoids;
     medoids.reserve(k);
     std::mt19937 rng(seed);
-    // simple random init without replacement
     vector<int> idx(n);
     for (int i = 0; i < n; ++i) idx[i] = i;
     shuffle(idx.begin(), idx.end(), rng);
@@ -86,10 +73,10 @@ Result pam_sequential(int n, const vector<int>& D, int k, int seed) {
     vector<int> membership(n);
     vector<int> bestDist(n), secondBestDist(n);
 
-    // initial membership
     calculer_affectation(n, D, medoids, 0, n, membership, bestDist, secondBestDist);
 
     long long cost = 0;
+    #pragma omp parallel for reduction(+:cost)
     for (int i = 0; i < n; ++i) cost += bestDist[i];
 
     bool improved = true;
@@ -99,35 +86,56 @@ Result pam_sequential(int n, const vector<int>& D, int k, int seed) {
         int bestSwapMed = -1;
         int bestSwapCand = -1;
 
-        // brute force all swaps
         set<int> medset(medoids.begin(), medoids.end());
-        for (int mi = 0; mi < k; ++mi) {
-            int med = medoids[mi];
-            for (int cand = 0; cand < n; ++cand) {
-                if (medset.count(cand)) continue;
-                long long delta = 0;
-                for (int i = 0; i < n; ++i) {
-                    int distToCand = D[i*n + cand];
-                    if (membership[i] == mi) {
-                        // currently assigned to the med being swapped out
-                        int newdist = min(distToCand, secondBestDist[i]);
-                        delta += (long long)newdist - bestDist[i];
-                    } else {
-                        if (distToCand < bestDist[i]) delta += (long long)distToCand - bestDist[i];
+        
+        vector<int> candidates;
+        for(int c = 0; c < n; ++c) {
+            if(!medset.count(c)) candidates.push_back(c);
+        }
+        
+        #pragma omp parallel
+        {
+            long long thread_best_delta = 0;
+            int thread_best_mi = -1;
+            int thread_best_cand = -1;
+            
+            #pragma omp for collapse(2) schedule(dynamic, 16)
+            for (int mi = 0; mi < k; ++mi) {
+                for (int c_idx = 0; c_idx < (int)candidates.size(); ++c_idx) {
+                    int cand = candidates[c_idx];
+                    long long delta = 0;
+                    
+                    for (int i = 0; i < n; ++i) {
+                        int distToCand = D[i*n + cand];
+                        if (membership[i] == mi) {
+                            int newdist = min(distToCand, secondBestDist[i]);
+                            delta += (long long)newdist - bestDist[i];
+                        } else {
+                            if (distToCand < bestDist[i]) 
+                                delta += (long long)distToCand - bestDist[i];
+                        }
+                    }
+                    
+                    if (delta < thread_best_delta) {
+                        thread_best_delta = delta;
+                        thread_best_mi = mi;
+                        thread_best_cand = cand;
                     }
                 }
-                if (delta < bestDelta) {
-                    bestDelta = delta;
-                    bestSwapMed = mi;
-                    bestSwapCand = cand;
+            }
+            
+            #pragma omp critical
+            {
+                if (thread_best_delta < bestDelta) {
+                    bestDelta = thread_best_delta;
+                    bestSwapMed = thread_best_mi;
+                    bestSwapCand = thread_best_cand;
                 }
             }
         }
 
         if (bestDelta < 0) {
-            // apply swap
             medoids[bestSwapMed] = bestSwapCand;
-            // recompute membership and dists
             calculer_affectation(n, D, medoids, 0, n, membership, bestDist, secondBestDist);
             cost += bestDelta;
             improved = true;
@@ -140,20 +148,6 @@ Result pam_sequential(int n, const vector<int>& D, int k, int seed) {
     return res;
 }
 
-/**
- * @brief pam_distributed
- * Version distribuée de PAM : chaque processus reçoit une partie des lignes
- * de la matrice D (scatterv) ; les calculs de delta sont réduits globalement
- * pour décider des échanges.
- *
- * @param n nombre de points
- * @param D matrice des distances complète (sur le rang 0) ou vide sur les autres
- * @param k nombre de médoines
- * @param seed graine aléatoire
- * @param rank rang MPI
- * @param size nombre de processus
- * @return Result résultat (valide sur le rang 0)
- */
 #ifndef USE_MPI
 Result pam_distributed(int n, const vector<int>& D, int k, int seed, int , int ) {
     return pam_sequential(n, D, k, seed);
@@ -167,7 +161,6 @@ Result pam_distributed(int n, const vector<int>& D, int k, int seed, int rank, i
         return res;
     }
 
-    // Distribution de la matrice D par lignes
     vector<int> localD;
     int rowsPerProc = n / size;
     int remainder = n % size;
@@ -175,9 +168,8 @@ Result pam_distributed(int n, const vector<int>& D, int k, int seed, int rank, i
     vector<int> displs(size);
     int offset = 0;
 
-    // remplir sendCounts et displs
     for (int i = 0; i < size; ++i) {
-         sendCounts[i] = (i < remainder) ? (rowsPerProc + 1) * n : rowsPerProc * n;
+        sendCounts[i] = (i < remainder) ? (rowsPerProc + 1) * n : rowsPerProc * n;
         displs[i] = offset;
         offset += sendCounts[i];
     }
@@ -188,7 +180,6 @@ Result pam_distributed(int n, const vector<int>& D, int k, int seed, int rank, i
     MPI_Scatterv(D.data(), sendCounts.data(), displs.data(), MPI_INT,
                  localD.data(), localRows * n, MPI_INT, 0, MPI_COMM_WORLD);
 
-    // Initialisation aléatoire des medoids sur rank 0
     vector<int> medoids;
     if (rank == 0) {
         medoids.reserve(k);
@@ -199,85 +190,122 @@ Result pam_distributed(int n, const vector<int>& D, int k, int seed, int rank, i
         for (int i = 0; i < k; ++i) medoids.push_back(perm[i]);
     }
 
-    // Broadcast des medoids à tous les processus
     medoids.resize(k);
     MPI_Bcast(medoids.data(), k, MPI_INT, 0, MPI_COMM_WORLD);
 
-    // Tableaux d'affectation locaux
     vector<int> membership(localRows);
     vector<int> bestDist(localRows), secondBestDist(localRows);
 
-    // Calcul initial des affectations locales
     calculer_affectation(n, localD, medoids, 0, localRows, membership, bestDist, secondBestDist);
 
-    // Coût total local
     long long localCost = 0;
+    #pragma omp parallel for reduction(+:localCost)
     for (int i = 0; i < localRows; ++i) localCost += bestDist[i];
 
     bool changed = true;
     while (changed) {
         changed = false;
-        long long bestDelta = 0;
-        int bestMedIndex = -1;
-        int bestCand = -1;
+        
         set<int> medset(medoids.begin(), medoids.end());
-
-        for (int mi = 0; mi < k; ++mi) {
-            for (int cand = 0; cand < n; ++cand) {
-                if (medset.count(cand)) continue;
-
+        vector<int> candidates;
+        for(int c = 0; c < n; ++c) {
+            if(!medset.count(c)) candidates.push_back(c);
+        }
+        int num_candidates = candidates.size();
+        
+        vector<long long> all_deltas(k * num_candidates, 0);
+        
+        #pragma omp parallel for collapse(2) schedule(dynamic, 16)
+        for(int mi = 0; mi < k; ++mi) {
+            for(int c_idx = 0; c_idx < num_candidates; ++c_idx) {
+                int cand = candidates[c_idx];
                 long long delta = 0;
-                for (int i = 0; i < localRows; ++i) {
-                    int distToCand = localD[i*n + cand];
-                    if (membership[i] == mi) {
+                
+                for(int i = 0; i < localRows; ++i) {
+                    int distToCand = localD[i * n + cand];
+                    
+                    if(membership[i] == mi) {
                         int nd = min(distToCand, secondBestDist[i]);
                         delta += (long long)nd - bestDist[i];
                     } else {
-                        if (distToCand < bestDist[i]) delta += (long long)distToCand - bestDist[i];
+                        if(distToCand < bestDist[i]) {
+                            delta += (long long)distToCand - bestDist[i];
+                        }
                     }
                 }
-
-                long long globalDelta = 0;
-                MPI_Allreduce(&delta, &globalDelta, 1, MPI_LONG_LONG, MPI_SUM, MPI_COMM_WORLD);
-
-                if (globalDelta < bestDelta) {
-                    bestDelta = globalDelta;
-                    bestMedIndex = mi;
-                    bestCand = cand;
+                
+                all_deltas[mi * num_candidates + c_idx] = delta;
+            }
+        }
+        
+        vector<long long> global_deltas(k * num_candidates);
+        MPI_Allreduce(all_deltas.data(), global_deltas.data(), 
+                      k * num_candidates, MPI_LONG_LONG, MPI_SUM, MPI_COMM_WORLD);
+        
+        long long bestDelta = 0;
+        int bestMedIndex = -1;
+        int bestCand = -1;
+        
+        #pragma omp parallel
+        {
+            long long thread_best_delta = 0;
+            int thread_best_mi = -1;
+            int thread_best_cand = -1;
+            
+            #pragma omp for collapse(2)
+            for(int mi = 0; mi < k; ++mi) {
+                for(int c_idx = 0; c_idx < num_candidates; ++c_idx) {
+                    long long delta = global_deltas[mi * num_candidates + c_idx];
+                    
+                    if(delta < thread_best_delta) {
+                        thread_best_delta = delta;
+                        thread_best_mi = mi;
+                        thread_best_cand = candidates[c_idx];
+                    }
+                }
+            }
+            
+            #pragma omp critical
+            {
+                if(thread_best_delta < bestDelta) {
+                    bestDelta = thread_best_delta;
+                    bestMedIndex = thread_best_mi;
+                    bestCand = thread_best_cand;
                 }
             }
         }
 
         if (bestDelta < 0) {
-            // Appliquer l'échange
             medoids[bestMedIndex] = bestCand;
             MPI_Bcast(medoids.data(), k, MPI_INT, 0, MPI_COMM_WORLD);
             calculer_affectation(n, localD, medoids, 0, localRows, membership, bestDist, secondBestDist);
-            localCost += bestDelta; // chaque proc ajoute la même valeur
+            localCost += bestDelta;
             changed = true;
         }
     }
 
-    // Rassembler le membership complet sur rank 0
+    vector<int> fullMembership;
     vector<int> recvCounts(size);
     vector<int> displs_membership(size);
-    displs_membership[0] = 0;
+    
     for (int i = 0; i < size; ++i) {
         recvCounts[i] = (i < remainder ? rowsPerProc + 1 : rowsPerProc);
-        if(i > 0) {
-            displs_membership[i] = displs_membership[i-1] + recvCounts[i-1];
-        }
+    }
+    
+    displs_membership[0] = 0;
+    for(int i = 1; i < size; ++i) {
+        displs_membership[i] = displs_membership[i-1] + recvCounts[i-1];
     }
 
     if (rank == 0) fullMembership.resize(n);
+    
     MPI_Gatherv(membership.data(), localRows, MPI_INT,
                 fullMembership.data(), recvCounts.data(), displs_membership.data(),
                 MPI_INT, 0, MPI_COMM_WORLD);
 
-    // Calcul du coût total final
     long long totalCost = 0;
-    MPI_Reduce(&localCost, &totalCost, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);  
-    // Rassembler les résultats sur rank 0 
+    MPI_Reduce(&localCost, &totalCost, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+    
     if (rank == 0) {
         res.medoids = medoids;
         res.membership = fullMembership;
