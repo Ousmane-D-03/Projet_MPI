@@ -11,9 +11,17 @@
 using namespace std;
 
 int main(int argc, char* argv[]) {
-    MPI_Init(&argc, &argv);
-
     int pid, nprocs;
+    int provided;
+    MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
+
+    if (provided < MPI_THREAD_FUNNELED) {
+        if (pid == 0)
+            printf("MPI ne fournit pas le niveau de threads requis\n");
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+
+    
     MPI_Comm_rank(MPI_COMM_WORLD, &pid);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
@@ -83,14 +91,14 @@ int main(int argc, char* argv[]) {
     decouperMatrice(D, D_local, nb_nodes, block_size, p_sqrt, 0, pid);
 
     double t0 = MPI_Wtime();
-    int* D_final = floydBlocsMPI(D_local, nb_nodes, p_sqrt, pid, 0);
+    int* D_final = floydBlocsHybrid(D_local, nb_nodes, p_sqrt, pid, 0);
     double t1 = MPI_Wtime();
 
     double local_time = t1 - t0, max_time;
     MPI_Reduce(&local_time, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
 
     if (pid == 0) {
-        cout << "=== Matrice globale après Floyd par blocs MPI ===" << endl;
+        cout << "=== Matrice globale après Floyd par blocs Hybride (MPI-OpenMP) ===" << endl;
         affichage(D_final, nb_nodes, nb_nodes, 3);
 
         cout << "\nTemps parallèle : " << max_time << " sec" << endl;
