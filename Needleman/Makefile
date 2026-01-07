@@ -6,6 +6,9 @@ SOURCES = Needleman.cpp main_needleman.cpp
 OBJECTS = $(SOURCES:.cpp=.o)
 TARGET = needleman_test
 
+# <<< fichier utilisé automatiquement >>>
+INPUT = data2000.fa
+
 all: $(TARGET)
 
 $(TARGET): $(OBJECTS)
@@ -15,7 +18,7 @@ $(TARGET): $(OBJECTS)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 test: $(TARGET)
-	./$(TARGET)
+	./$(TARGET) $(INPUT)
 
 clean:
 	rm -f $(OBJECTS) $(TARGET)
