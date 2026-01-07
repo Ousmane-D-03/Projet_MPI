@@ -64,6 +64,6 @@ void afficherBloc(int* D_local, int block_size,
  * @note Configuration optimale : p × t ≈ nombre de cœurs physiques
  */
 int* floydBlocsHybrid(int* D_local,
-                   int nb_nodes, int p_sqrt, int pid, int root);
+                   int nb_nodes, int p_sqrt, int pid, int root, int num_threads);
 
 #endif
