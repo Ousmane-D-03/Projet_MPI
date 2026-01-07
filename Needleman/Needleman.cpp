@@ -1,6 +1,6 @@
 /**
  * @file Needleman.cpp
- * @brief Implémentation de l'algorithme de Needleman-Wunsch
+ * @brief VERSION TESTÉE ET FONCTIONNELLE
  */
 
 #include "Needleman.hpp"
@@ -13,6 +13,9 @@ inline int substitution_score(char a, char b, const ScoringParams& params) {
     return (a == b) ? params.match : params.mismatch;
 }
 
+/**
+ * @brief Version séquentielle (RÉFÉRENCE)
+ */
 int needleman_wunsch_sequential(const string& seq1, const string& seq2, 
                                 const ScoringParams& params) {
     int m = seq1.length();
@@ -24,6 +27,7 @@ int needleman_wunsch_sequential(const string& seq1, const string& seq2,
     vector<vector<int>> dp(m + 1, vector<int>(n + 1));
     vector<vector<int>> gap_state(m + 1, vector<int>(n + 1, 0));
     
+    // Initialisation
     dp[0][0] = 0;
     for (int i = 1; i <= m; i++) {
         dp[i][0] = params.gap_open + (i - 1) * params.gap_extend;
@@ -34,9 +38,11 @@ int needleman_wunsch_sequential(const string& seq1, const string& seq2,
         gap_state[0][j] = 2;
     }
     
+    // Remplissage standard (ligne par ligne)
     for (int i = 1; i <= m; i++) {
         for (int j = 1; j <= n; j++) {
-            int match_score = dp[i-1][j-1] + substitution_score(seq1[i-1], seq2[j-1], params);
+            int match_score = dp[i-1][j-1] + 
+                substitution_score(seq1[i-1], seq2[j-1], params);
             
             int gap_penalty_vertical = (gap_state[i-1][j] == 1) 
                 ? params.gap_extend : params.gap_open;
@@ -61,6 +67,12 @@ int needleman_wunsch_sequential(const string& seq1, const string& seq2,
     return dp[m][n];
 }
 
+/**
+ * @brief Version parallèle OpenMP (CORRIGÉE - ANTI-DIAGONALES)
+ * 
+ * PRINCIPE : Les cellules d'une même anti-diagonale sont indépendantes
+ * Anti-diagonale k : toutes les cellules (i,j) telles que i+j = k
+ */
 int needleman_wunsch_parallel(const string& seq1, const string& seq2,
                               const ScoringParams& params,
                               int num_threads) {
@@ -77,6 +89,7 @@ int needleman_wunsch_parallel(const string& seq1, const string& seq2,
     vector<vector<int>> dp(m + 1, vector<int>(n + 1));
     vector<vector<int>> gap_state(m + 1, vector<int>(n + 1, 0));
     
+    // Initialisation (identique)
     dp[0][0] = 0;
     for (int i = 1; i <= m; i++) {
         dp[i][0] = params.gap_open + (i - 1) * params.gap_extend;
@@ -87,17 +100,22 @@ int needleman_wunsch_parallel(const string& seq1, const string& seq2,
         gap_state[0][j] = 2;
     }
     
-    int total_diagonals = m + n - 1;
+    // Remplissage par ANTI-DIAGONALES
+    // Anti-diagonale k : ensemble des (i,j) tels que i+j = k
+    // k varie de 2 (première cellule (1,1)) à m+n (dernière cellule (m,n))
     
-    for (int diag = 0; diag < total_diagonals; diag++) {
-        int start_i = max(0, diag - n + 1);
-        int end_i = min(m, diag + 1);
+    for (int k = 2; k <= m + n; k++) {
+        // Pour anti-diagonale k, i varie de max(1, k-n) à min(m, k-1)
+        int i_min = max(1, k - n);
+        int i_max = min(m, k - 1);
         
-        #pragma omp parallel for schedule(static)
-        for (int i = start_i; i < end_i; i++) {
-            int j = diag - i + 1;
+        // Paralléliser le calcul des cellules de cette anti-diagonale
+        #pragma omp parallel for schedule(static) if(i_max - i_min > 10)
+        for (int i = i_min; i <= i_max; i++) {
+            int j = k - i;
             
-            if (j > 0 && j <= n) {
+            // Vérification sécurité (normalement toujours vraie)
+            if (j >= 1 && j <= n) {
                 int match_score = dp[i-1][j-1] + 
                     substitution_score(seq1[i-1], seq2[j-1], params);
                 
@@ -120,6 +138,7 @@ int needleman_wunsch_parallel(const string& seq1, const string& seq2,
                 }
             }
         }
+        // Barrière implicite : attendre que toute l'anti-diagonale soit calculée
     }
     
     return dp[m][n];
