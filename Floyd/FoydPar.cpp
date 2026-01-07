@@ -7,6 +7,8 @@
 #include "ForGraph.hpp"
 #include "FoydPar.hpp"
 #include "Utils.hpp"
+#include <omp.h>
+
 using namespace std;
 
 inline int& A(int* B, int b, int i, int j) { return B[i*b + j]; }
@@ -116,7 +118,8 @@ void afficherBloc(int* D_local, int block_size, int pid, int nprocs, const strin
  * @param root id du processus racine
  * @return pointeur vers la matrice globale (uniquement sur le root, NULL sinon)
  */
-int* floydBlocsMPI(int* D_local, int nb_nodes, int p_sqrt, int pid, int root){
+int* floydBlocsHybrid(int* D_local, int nb_nodes, int p_sqrt, int pid, int root){
+    omp_set_num_threads(omp_get_max_threads());
     int block_size = nb_nodes/p_sqrt;
     int px = pid/p_sqrt;
     int py = pid%p_sqrt;
@@ -129,6 +132,7 @@ int* floydBlocsMPI(int* D_local, int nb_nodes, int p_sqrt, int pid, int root){
         int pivot_rank = k*p_sqrt + k;
 
         if(pid==pivot_rank){
+            #pragma omp parallel for collapse(2) schedule(static)
             for(int i=0;i<block_size;i++)
                 for(int j=0;j<block_size;j++)
                     for(int x=0;x<block_size;x++)
@@ -146,6 +150,7 @@ int* floydBlocsMPI(int* D_local, int nb_nodes, int p_sqrt, int pid, int root){
         MPI_Bcast(pivot, block_size*block_size, MPI_INT, k, col_comm);
 
         if(px==k && py!=k){
+            #pragma omp parallel for collapse(2) schedule(static)
             for(int i=0;i<block_size;i++)
                 for(int j=0;j<block_size;j++)
                     for(int x=0;x<block_size;x++)
@@ -154,6 +159,7 @@ int* floydBlocsMPI(int* D_local, int nb_nodes, int p_sqrt, int pid, int root){
                                                             pivot[i*block_size+x]+A(D_local,block_size,x,j));
         }
         if(py==k && px!=k){
+            #pragma omp parallel for collapse(2) schedule(static)
             for(int i=0;i<block_size;i++)
                 for(int j=0;j<block_size;j++)
                     for(int x=0;x<block_size;x++)
@@ -176,6 +182,7 @@ int* floydBlocsMPI(int* D_local, int nb_nodes, int p_sqrt, int pid, int root){
         MPI_Bcast(col_block, block_size*block_size, MPI_INT, col_root, MPI_COMM_WORLD);
 
         if(px!=k && py!=k){
+            #pragma omp parallel for collapse(2) schedule(static)
             for(int i=0;i<block_size;i++)
                 for(int j=0;j<block_size;j++)
                     for(int x=0;x<block_size;x++)
