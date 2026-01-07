@@ -1,7 +1,7 @@
 CXX = mpic++
-CFLAGS = -O2 -std=c++11 -DUSE_MPI -DWITH_GRAPHVIZ
+CFLAGS = -O2 -std=c++11 -DUSE_MPI -DWITH_GRAPHVIZ -fopenmp
 INCLUDES = -I.
-LDFLAGS = -lcgraph
+LDFLAGS = -lcgraph -fopenmp   
 
 SRCS = FoydPar.cpp ForGraph.cpp Utils.cpp main.cpp
 OBJS = $(SRCS:.cpp=.o)
