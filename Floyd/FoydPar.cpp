@@ -1,4 +1,5 @@
 #include <mpi.h>
+#include <omp.h>
 #include <iostream>
 #include <fstream>
 #include <cmath>
@@ -7,22 +8,10 @@
 #include "ForGraph.hpp"
 #include "FoydPar.hpp"
 #include "Utils.hpp"
-#include <omp.h>
-
 using namespace std;
 
 inline int& A(int* B, int b, int i, int j) { return B[i*b + j]; }
 
-/**
- * @brief Découpe la matrice globale en blocs et les distribue aux processus
- * @param D matrice globale
- * @param D_local bloc local
- * @param n taille de la matrice globale
- * @param block_size taille d’un bloc
- * @param p_sqrt racine carrée du nombre de processus
- * @param root processus racine
- * @param pid identifiant du processus courant
- */
 void decouperMatrice(int* D, int* D_local, int n, int block_size, int p_sqrt, int root, int pid) {
     if(pid==root){
         int* temp = new int[block_size*block_size];
@@ -43,18 +32,7 @@ void decouperMatrice(int* D, int* D_local, int n, int block_size, int p_sqrt, in
     }
 }
 
-/**
- * @brief Rassemble les blocs distribués en matrice globale
- * @param D_local bloc local
- * @param n taille de la matrice globale
- * @param block_size taille d’un bloc
- * @param p_sqrt racine carrée du nombre de processus
- * @param root processus racine
- * @param pid identifiant du processus courant
- * @return pointeur vers la matrice globale (NULL si non root)
- */
-int* rassemblerMatrice(int* D_local,
-                       int n, int block_size, int p_sqrt, int root, int pid)
+int* rassemblerMatrice(int* D_local, int n, int block_size, int p_sqrt, int root, int pid)
 {
     int bloc_elem = block_size * block_size;
     int nb_procs = p_sqrt * p_sqrt;
@@ -85,14 +63,6 @@ int* rassemblerMatrice(int* D_local,
     return nullptr;
 }
 
-/**
- * @brief Affiche un bloc local de matrice
- * @param D_local bloc local
- * @param block_size taille du bloc
- * @param pid id du processus
- * @param nprocs nombre total de processus
- * @param titre titre à afficher
- */
 void afficherBloc(int* D_local, int block_size, int pid, int nprocs, const string &titre){
     MPI_Barrier(MPI_COMM_WORLD);
     for(int p=0;p<nprocs;p++){
@@ -110,89 +80,149 @@ void afficherBloc(int* D_local, int block_size, int pid, int nprocs, const strin
 }
 
 /**
- * @brief Algorithme de Floyd–Warshall par blocs (MPI)
- * @param D_local bloc local de matrice
- * @param nb_nodes nombre de nœuds du graphe
- * @param p_sqrt racine carrée du nombre de processus
- * @param pid id du processus courant
- * @param root id du processus racine
- * @return pointeur vers la matrice globale (uniquement sur le root, NULL sinon)
+ * @brief Floyd-Warshall par blocs avec MPI et OpenMP
  */
-int* floydBlocsHybrid(int* D_local, int nb_nodes, int p_sqrt, int pid, int root){
-    omp_set_num_threads(omp_get_max_threads());
+int* floydBlocsHybrid(int* D_local, int nb_nodes, int p_sqrt, int pid, int root, int num_threads){
     int block_size = nb_nodes/p_sqrt;
-    int px = pid/p_sqrt;
-    int py = pid%p_sqrt;
-
+    int px = pid/p_sqrt;   // Position ligne du processus dans la grille
+    int py = pid%p_sqrt;   // Position colonne du processus dans la grille
+    omp_set_num_threads(num_threads);
     int* pivot = new int[block_size*block_size];
     int* row_block = new int[block_size*block_size];
     int* col_block = new int[block_size*block_size];
 
-    for(int k=0;k<p_sqrt;k++){
-        int pivot_rank = k*p_sqrt + k;
+    // Pour chaque bloc diagonal (pivot)
+    for(int k=0; k<p_sqrt; k++){
+        int pivot_rank = k*p_sqrt + k;  // Processus qui possède le bloc diagonal
 
-        if(pid==pivot_rank){
-            #pragma omp parallel for collapse(2) schedule(static)
-            for(int i=0;i<block_size;i++)
-                for(int j=0;j<block_size;j++)
-                    for(int x=0;x<block_size;x++)
-                        if(A(D_local,block_size,i,x)<INF && A(D_local,block_size,x,j)<INF)
-                            A(D_local,block_size,i,j) = min(A(D_local,block_size,i,j),
-                                                            A(D_local,block_size,i,x)+A(D_local,block_size,x,j));
-            copy(D_local,D_local+block_size*block_size,pivot);
+        // ======== PHASE 1 : Calcul du bloc pivot [k,k] ========
+        if(pid == pivot_rank){
+            // Floyd-Warshall standard sur le bloc diagonal
+            #pragma omp parallel for collapse(2) 
+            for(int kk=0; kk<block_size; kk++){
+                for(int i=0; i<block_size; i++){
+                    for(int j=0; j<block_size; j++){
+                        if(A(D_local,block_size,i,kk) < INF && 
+                           A(D_local,block_size,kk,j) < INF){
+                            int new_dist = A(D_local,block_size,i,kk) + 
+                                         A(D_local,block_size,kk,j);
+                            if(new_dist < A(D_local,block_size,i,j)){
+                                A(D_local,block_size,i,j) = new_dist;
+                            }
+                        }
+                    }
+                }
+            }
+            copy(D_local, D_local+block_size*block_size, pivot);
         }
 
-        MPI_Comm row_comm, col_comm;
-        MPI_Comm_split(MPI_COMM_WORLD, px, pid, &row_comm);
-        MPI_Comm_split(MPI_COMM_WORLD, py, pid, &col_comm);
+        // Broadcast du bloc pivot à tous les processus
+        MPI_Bcast(pivot, block_size*block_size, MPI_INT, pivot_rank, MPI_COMM_WORLD);
 
-        MPI_Bcast(pivot, block_size*block_size, MPI_INT, k, row_comm);
-        MPI_Bcast(pivot, block_size*block_size, MPI_INT, k, col_comm);
-
-        if(px==k && py!=k){
-            #pragma omp parallel for collapse(2) schedule(static)
-            for(int i=0;i<block_size;i++)
-                for(int j=0;j<block_size;j++)
-                    for(int x=0;x<block_size;x++)
-                        if(pivot[i*block_size+x]<INF && A(D_local,block_size,x,j)<INF)
-                            A(D_local,block_size,i,j) = min(A(D_local,block_size,i,j),
-                                                            pivot[i*block_size+x]+A(D_local,block_size,x,j));
+        // ======== PHASE 2 : Mise à jour blocs LIGNE k ========
+        if(px == k && py != k){
+            // Je suis dans la ligne k mais pas sur la diagonale
+            #pragma omp parallel for collapse(2) 
+            for(int kk=0; kk<block_size; kk++){
+                for(int i=0; i<block_size; i++){
+                    for(int j=0; j<block_size; j++){
+                        if(pivot[i*block_size+kk] < INF && 
+                           A(D_local,block_size,kk,j) < INF){
+                            int new_dist = pivot[i*block_size+kk] + 
+                                         A(D_local,block_size,kk,j);
+                            if(new_dist < A(D_local,block_size,i,j)){
+                                A(D_local,block_size,i,j) = new_dist;
+                            }
+                        }
+                    }
+                }
+            }
         }
-        if(py==k && px!=k){
-            #pragma omp parallel for collapse(2) schedule(static)
-            for(int i=0;i<block_size;i++)
-                for(int j=0;j<block_size;j++)
-                    for(int x=0;x<block_size;x++)
-                        if(A(D_local,block_size,i,x)<INF && pivot[x*block_size+j]<INF)
-                            A(D_local,block_size,i,j) = min(A(D_local,block_size,i,j),
-                                                            A(D_local,block_size,i,x)+pivot[x*block_size+j]);
+        
+        // ======== PHASE 3 : Mise à jour blocs COLONNE k ========
+        if(py == k && px != k){
+            // Je suis dans la colonne k mais pas sur la diagonale
+            #pragma omp parallel for collapse(2) 
+            for(int kk=0; kk<block_size; kk++){
+                for(int i=0; i<block_size; i++){
+                    for(int j=0; j<block_size; j++){
+                        if(A(D_local,block_size,i,kk) < INF && 
+                           pivot[kk*block_size+j] < INF){
+                            int new_dist = A(D_local,block_size,i,kk) + 
+                                         pivot[kk*block_size+j];
+                            if(new_dist < A(D_local,block_size,i,j)){
+                                A(D_local,block_size,i,j) = new_dist;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Synchronisation avant de broadcaster ligne et colonne
+        MPI_Barrier(MPI_COMM_WORLD);
+
+        // ======== PHASE 4 : Broadcast ligne k et colonne k ========
+        // Chaque processus a besoin de deux blocs :
+        // - Le bloc [k, py] (dans la ligne k, colonne py)
+        // - Le bloc [px, k] (dans la ligne px, colonne k)
+        
+        // Broadcast de tous les blocs de la ligne k
+        for(int col=0; col<p_sqrt; col++){
+            int source = k*p_sqrt + col;  // Processus [k, col]
+            
+            int* temp_buf = new int[block_size*block_size];
+            if(pid == source){
+                copy(D_local, D_local+block_size*block_size, temp_buf);
+            }
+            MPI_Bcast(temp_buf, block_size*block_size, MPI_INT, source, MPI_COMM_WORLD);
+            
+            // Si c'est le bloc dont j'ai besoin, je le garde
+            if(col == py){
+                copy(temp_buf, temp_buf+block_size*block_size, row_block);
+            }
+            delete[] temp_buf;
+        }
+        
+        // Broadcast de tous les blocs de la colonne k
+        for(int row=0; row<p_sqrt; row++){
+            int source = row*p_sqrt + k;  // Processus [row, k]
+            
+            int* temp_buf = new int[block_size*block_size];
+            if(pid == source){
+                copy(D_local, D_local+block_size*block_size, temp_buf);
+            }
+            MPI_Bcast(temp_buf, block_size*block_size, MPI_INT, source, MPI_COMM_WORLD);
+            
+            // Si c'est le bloc dont j'ai besoin, je le garde
+            if(row == px){
+                copy(temp_buf, temp_buf+block_size*block_size, col_block);
+            }
+            delete[] temp_buf;
         }
 
         MPI_Barrier(MPI_COMM_WORLD);
 
-        int row_root=-1, col_root=-1;
-        for(int p=0;p<p_sqrt*p_sqrt;p++){
-            if(p/p_sqrt==k) row_root=p;
-            if(p%p_sqrt==k) col_root=p;
+        // ======== PHASE 5 : Mise à jour AUTRES blocs ========
+        if(px != k && py != k){
+            // Maintenant row_block = bloc[k, py] et col_block = bloc[px, k]
+            #pragma omp parallel for collapse(2) 
+            for(int kk=0; kk<block_size; kk++){
+                for(int i=0; i<block_size; i++){
+                    for(int j=0; j<block_size; j++){
+                        if(col_block[i*block_size+kk] < INF && 
+                           row_block[kk*block_size+j] < INF){
+                            int new_dist = col_block[i*block_size+kk] + 
+                                         row_block[kk*block_size+j];
+                            if(new_dist < A(D_local,block_size,i,j)){
+                                A(D_local,block_size,i,j) = new_dist;
+                            }
+                        }
+                    }
+                }
+            }
         }
-        if(px==k) copy(D_local,D_local+block_size*block_size,row_block);
-        if(py==k) copy(D_local,D_local+block_size*block_size,col_block);
 
-        MPI_Bcast(row_block, block_size*block_size, MPI_INT, row_root, MPI_COMM_WORLD);
-        MPI_Bcast(col_block, block_size*block_size, MPI_INT, col_root, MPI_COMM_WORLD);
-
-        if(px!=k && py!=k){
-            #pragma omp parallel for collapse(2) schedule(static)
-            for(int i=0;i<block_size;i++)
-                for(int j=0;j<block_size;j++)
-                    for(int x=0;x<block_size;x++)
-                        if(col_block[i*block_size+x]<INF && row_block[x*block_size+j]<INF)
-                            A(D_local,block_size,i,j) = min(A(D_local,block_size,i,j),
-                                                            col_block[i*block_size+x]+row_block[x*block_size+j]);
-        }
-
-        MPI_Comm_free(&row_comm);
-        MPI_Comm_free(&col_comm);
         MPI_Barrier(MPI_COMM_WORLD);
     }
 
@@ -200,8 +230,5 @@ int* floydBlocsHybrid(int* D_local, int nb_nodes, int p_sqrt, int pid, int root)
     delete[] row_block;
     delete[] col_block;
 
-    // Rassemble les blocs sur le root pour obtenir la matrice globale
     return rassemblerMatrice(D_local, nb_nodes, block_size, p_sqrt, root, pid);
 }
-
-
