@@ -146,7 +146,7 @@ int main(int argc, char* argv[]) {
     
     double t_floyd_start = MPI_Wtime();
     decouperMatrice(distanceMatrix, D_local, nbSeq, block_size, p_sqrt, 0, pid);
-    int* D_global = floydBlocsMPI(D_local, nbSeq, p_sqrt, pid, 0);
+    int* D_global = floydBlocsHybrid(D_local, nbSeq, p_sqrt, pid, 0);
     double t_floyd_end = MPI_Wtime();
     
     if(pid == 0) {
